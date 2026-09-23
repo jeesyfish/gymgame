@@ -571,9 +571,10 @@ function lotterySelect(pool, t, needed, extraFilter, spillPool, rankFirst) {
   return ents; // 允许缺额：签表留洞
 }
 // 正赛直接入围名额：正赛池（排名≤正赛门槛）按排名竞争（高排名保护：rankFirst 纯排名取满），ITF 弱者优先；玩家经 forceUserInto 按位次顶替入签
+// 直接区不足时溢出递补（spillPoolFor）：资格赛合格者按取人顺序直接补进正赛 —— ITF 同享（弱者优先），
+// 避免排在周末建签的 ITF 正赛池（201~500 名段）被周限额耗尽后正赛空无一人（11.3）
 function selectDirect(t) {
-  const ents = lotterySelect(mainPool(t), t, t.directCount, null,
-    t.level === 'ITF' ? null : spillPoolFor(t), true);
+  const ents = lotterySelect(mainPool(t), t, t.directCount, null, spillPoolFor(t), true);
   ents.sort(byDirOrder(t.level));
   return ents;
 }
