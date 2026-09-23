@@ -1669,7 +1669,11 @@ function render() {
   else if (state.ui.tab === 'profile') main.innerHTML = renderProfile();
   else main.innerHTML = renderSettings();
   if (state.ui.tab === 'profile') drawPointsChart();
-  if (UI.calGoWeek) { // 打开赛历（切换 tab 触发的一次性定位）：滚动到当前周；历史跳转（calHighlight）优先
+  if (UI.calGoTop) { // 点击赛事进入对阵界面：一次性定位到面板顶部
+    UI.calGoTop = false;
+    if (state && state.ui.tab === 'calendar' && state.ui.calView) window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+  if (UI.calGoWeek) { // 打开/返回赛历（一次性定位）：滚动到当前周；历史跳转（calHighlight）优先
     UI.calGoWeek = false;
     if (state && state.ui.tab === 'calendar' && !state.ui.calView && !state.ui.calHighlight) {
       const cur = document.querySelector('.cal-week.cal-cur');
@@ -2531,10 +2535,11 @@ function handleAction(name, arg, arg2, arg3) {
         <div class="btn-row"><button class="btn btn-sm" onclick="PT.a('closeModal')">关闭</button></div>`);
       break;
     }
-    case 'selT': state.ui.calView = arg; save(); break; // 进入独立对阵界面（9.2）
+    case 'selT': state.ui.calView = arg; UI.calGoTop = true; save(); break; // 进入独立对阵界面（9.2），进入后定位到面板顶部
     case 'calBack': // 返回（赛历或我的数据，视进入来源）
       state.ui.calView = null; state.ui.calHighlight = null;
       state.ui.tab = state.ui.calBackTab || 'calendar'; state.ui.calBackTab = null;
+      UI.calGoWeek = state.ui.tab === 'calendar'; // 返回赛历时重新定位到当前周
       save(); break;
     case 'histToggle': UI.histAll = !UI.histAll; break;
     case 'histOpen': { // 9.4：从历史比赛跳转该场签表（跨赛季归档可查），并滚动定位高亮
