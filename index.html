@@ -91,6 +91,7 @@ tr.me td{background:#FFF7E0;font-weight:700}
 .m b{font-weight:800}
 .m .won{color:var(--green-d)}
 .m-me{border:2px solid var(--orange);background:#FFFDF3}
+.m-hl{outline:3px solid #F9A825;border-radius:8px;animation:pop .5s ease}
 .m-pending{opacity:.75;font-style:italic}
 /* ==================== 图表 / 统计 ==================== */
 canvas.chart{width:100%;height:180px;background:#FFF;border:1px solid var(--line);border-radius:10px}
@@ -880,7 +881,8 @@ function applyPlayerResult(res) {
   }
   state.history.push({ season: state.season.number, day: state.season.day, tournamentId: t.id,
     level: t.level, round: roundLabel, oppId: res.oppId, result: res.won ? 'W' : 'L',
-    sets: res.sets.map(s => [s.user, s.ai]), pointsEarned: pts });
+    sets: res.sets.map(s => [s.user, s.ai]), pointsEarned: pts,
+    tournamentName: t.name, oppRank: playerById(res.oppId).ranking }); // 9.4 历史列表快照（旧档缺省回退查签表/现排名）
   updateStreak();
 }
 
@@ -1310,6 +1312,8 @@ function newSeason() {
   };
   for (const p of state.players) p.points.forEach(fix);
   state.user.points.forEach(fix);
+  // 9.4 跨赛季对阵可查：往届赛事完整签表归档保留（容量兜底见 enforceArchiveBudget）
+  state.archive = (state.archive || []).concat(state.tournaments.map(t => Object.assign({ archivedSeason: state.season.number - 1 }, t))); // number 已自增，旧赛季号需 -1
   state.tournaments = [];
   state.today = null;
   state.userEntry = null;   // 预约不跨赛季（收官周无远期可报，理论残留在此取消）
@@ -1318,6 +1322,7 @@ function newSeason() {
   state.season.day = 1;
   advanceToDay(1);
   save();
+  enforceArchiveBudget(); // 9.4 归档后容量兜底（超限裁剪最早赛季的 AI 逐局比分）
 }
 /* ########################################################################
  * 第 8 章 · 存档（localStorage，schema v1）与备份
@@ -1355,6 +1360,7 @@ function load() {
       if (typeof p.attendance !== 'number')
         p.attendance = +((amin + ((p.id * 2654435761 >>> 0) % 1000) / 1000 * (amax - amin)).toFixed(3));
     }
+    if (!Array.isArray(state.archive)) state.archive = []; // 9.4 旧档无归档字段
     // 4.1 盲打迁移：旧 pending（已亮靶待录入）作废亮靶——按既有 oppM/公式生成 3 局成绩持久化，该局改走先录入
     if (state.today && state.today.aiSets == null) {
       const t = state.today, opp = playerById(t.oppId);
@@ -1431,6 +1437,7 @@ function importSave(jsonText) {
   if (!validateSave(o)) return '存档校验失败（版本或结构不符），未导入';
   state = o;
   save();
+  enforceArchiveBudget(); // 导入超大存档时同样裁剪兜底
   return null;
 }
 // 9.5：重新开始（清空存档；调用方负责二次确认）
@@ -1453,11 +1460,34 @@ function nextEnterableEvent() {
   return null;
 }
 
+// 9.4 存档体积兜底：localStorage 约 4MB 上限，按 3.5MB 预算从最早归档赛季起
+// 裁剪 AI 之间比赛的逐局比分（setsTrimmed：胜负/晋级结构保留；玩家比赛不裁剪）
+function enforceArchiveBudget(limit) {
+  const LIM = limit || 3500000;
+  const size = () => { try { return (localStorage.getItem(SAVE_KEY) || '').length; } catch (e) { return 0; } };
+  const trimTournament = (t) => {
+    let n = 0;
+    const trim = (m) => { if (m && m.played && m.sets.length && m.a !== USER_ID && m.b !== USER_ID) { m.sets = []; m.setsTrimmed = true; n++; } };
+    if (t.finals) { t.rr.flat().forEach(trim); t.sf.forEach(trim); trim(t.f); }
+    else { t.rounds.forEach(r => r.matches.forEach(trim)); t.qual.rounds.forEach(qr => qr.matches.forEach(trim)); }
+    return n;
+  };
+  let guard = 0;
+  while (size() > LIM && guard++ < 40) {
+    const cand = (state.archive || []).find(t => trimTournament(t) > 0);
+    if (!cand) { // 全部已裁剪仍超限：丢弃最旧归档赛事（history 记录仍保留本场比分）
+      if (!(state.archive || []).length) break;
+      state.archive.shift();
+    }
+    save();
+  }
+}
+
 /* ########################################################################
  * 第 9 章 · 界面
  * ######################################################################## */
 // 内存态 UI（不存档）：对局步骤 / 结算快照 / 弹窗
-const UI = { step: 'idle', lastSet: null, lastSettlement: null, pendingReps: null, corrupt: false, onboardErr: '' };
+const UI = { step: 'idle', lastSet: null, lastSettlement: null, pendingReps: null, corrupt: false, onboardErr: '', histAll: false };
 const TABS = [['today', '今日比赛'], ['calendar', '赛程日历'], ['rankings', '排名榜'], ['profile', '我的数据'], ['settings', '设置']];
 
 function toast(msg) {
@@ -1474,6 +1504,9 @@ function roundLabelOf(t, forFinalsDay) {
   return '';
 }
 function tournamentOf(id) { return state.tournaments.find(t => t.id === id); }
+function findTournament(id) { // 9.4：含往届归档赛事
+  return state.tournaments.find(t => t.id === id) || (state.archive || []).find(t => t.id === id);
+}
 
 /* ---------- 渲染框架 ---------- */
 function render() {
@@ -1487,6 +1520,10 @@ function render() {
   else if (state.ui.tab === 'profile') main.innerHTML = renderProfile();
   else main.innerHTML = renderSettings();
   if (state.ui.tab === 'profile') drawPointsChart();
+  if (state && state.ui.calHighlight && state.ui.tab === 'calendar') { // 9.4 历史跳转：滚动定位并高亮该场
+    const el = document.querySelector(`[data-ref="${state.ui.calHighlight}"]`);
+    if (el) { el.classList.add('m-hl'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  }
 }
 function renderHeader() {
   const el = document.getElementById('hd-sub');
@@ -1766,7 +1803,7 @@ function renderCalendar() {
 }
 // 签表面板：逐轮树状展示，玩家路径高亮，点开看逐局比分
 function renderDrawPanel(tid) {
-  const t = tournamentOf(tid);
+  const t = findTournament(tid);
   const ev = state.season.calendar.find(e => e.id === tid);
   if (!t) return `<div class="card"><h3>${esc(ev.name)}</h3><p class="muted">签表尚未生成（赛事开赛当天建签）。</p></div>`;
   const head = `<h3>${lvBadge(t.level)} ${esc(t.name)}
@@ -1789,18 +1826,24 @@ function renderMatchBoxQ(t, qd, mi, m) {
   const me = m && (m.a === USER_ID || m.b === USER_ID);
   let inner;
   if (!m.played) inner = `<span>${playerName(m.a)}<br>vs ${playerName(m.b)}</span>`;
+  else if (m.setsTrimmed) inner = `<b class="${m.winner === m.a ? 'won' : ''}">${playerName(m.a)}</b><br>
+      <b class="${m.winner === m.b ? 'won' : ''}">${playerName(m.b)}</b>
+      <div class="muted small mt">逐局比分已归档</div>`;
   else {
     const aw = m.winner === m.a;
     inner = `<b class="${aw ? 'won' : ''}">${playerName(m.a)}${aw && qd === 2 ? ' ✓' : ''}</b>　${m.sets.map(s => s[0]).join(' ')}<br>
       <b class="${!aw ? 'won' : ''}">${playerName(m.b)}${!aw && qd === 2 ? ' ✓' : ''}</b>　${m.sets.map(s => s[1]).join(' ')}
       <div class="muted small mt">${m.sets.map(s => `${s[0]}:${s[1]}`).join('　')}</div>`;
   }
-  return `<div class="m ${me ? 'm-me' : ''}" onclick="PT.a('showMatch','${t.id}|q:${qd}:${mi}')">${inner}</div>`;
+  return `<div class="m ${me ? 'm-me' : ''}" data-ref="q:${qd}:${mi}" onclick="PT.a('showMatch','${t.id}|q:${qd}:${mi}')">${inner}</div>`;
 }
 function renderMatchBox(t, ri, mi, m) {
   const me = m.a === USER_ID || m.b === USER_ID;
   let inner;
   if (!m.played) inner = `<span class="${m.a == null || m.b == null ? 'm-pending' : ''}">${playerName(m.a)}<br>vs ${playerName(m.b)}</span>`;
+  else if (m.setsTrimmed) inner = `<b class="${m.winner === m.a ? 'won' : ''}">${playerName(m.a)}</b><br>
+      <b class="${m.winner === m.b ? 'won' : ''}">${playerName(m.b)}</b>
+      <div class="muted small mt">逐局比分已归档</div>`;
   else {
     const scoreTxt = m.sets.map(s => `${s[0]}:${s[1]}`).join('　');
     const aw = m.winner === m.a;
@@ -1808,7 +1851,7 @@ function renderMatchBox(t, ri, mi, m) {
       <b class="${!aw ? 'won' : ''}">${playerName(m.b)}</b>　${m.sets.map(s => s[1]).join(' ')}
       <div class="muted small mt">${scoreTxt}</div>`;
   }
-  return `<div class="m ${me ? 'm-me' : ''}" onclick="PT.a('showMatch','${t.id}|m:${ri}:${mi}')">${inner}</div>`;
+  return `<div class="m ${me ? 'm-me' : ''}" data-ref="m:${ri}:${mi}" onclick="PT.a('showMatch','${t.id}|m:${ri}:${mi}')">${inner}</div>`;
 }
 function renderFinalsDraw(t) {
   const grp = g => groupStandings(t, g).map((r, i) =>
@@ -1826,18 +1869,21 @@ function renderMatchBoxF(t, kind, d, i, m) {
   if (!m) return '<div class="m m-pending">待定</div>';
   let inner;
   if (!m.played) inner = `${playerName(m.a)}<br>vs ${playerName(m.b)}`;
+  else if (m.setsTrimmed) inner = `<b class="${m.winner === m.a ? 'won' : ''}">${playerName(m.a)}</b><br>
+      <b class="${m.winner === m.b ? 'won' : ''}">${playerName(m.b)}</b>
+      <div class="muted small mt">逐局比分已归档</div>`;
   else {
     const aw = m.winner === m.a;
     inner = `<b class="${aw ? 'won' : ''}">${playerName(m.a)}</b>　${m.sets.map(s => s[0]).join(' ')}<br>
       <b class="${!aw ? 'won' : ''}">${playerName(m.b)}</b>　${m.sets.map(s => s[1]).join(' ')}
       <div class="muted small mt">${m.sets.map(s => `${s[0]}:${s[1]}`).join('　')}</div>`;
   }
-  return `<div class="m ${me ? 'm-me' : ''}" onclick="PT.a('showMatch','${t.id}|${kind}:${d}:${i}')">${inner}</div>`;
+  return `<div class="m ${me ? 'm-me' : ''}" data-ref="${kind}:${d}:${i}" onclick="PT.a('showMatch','${t.id}|${kind}:${d}:${i}')">${inner}</div>`;
 }
 // 点开任意一场：逐局比分弹窗（3.4：AI 之间比赛比分全部落库可查）
 function showMatchModal(ref) {
   const [tid, loc] = ref.split('|');
-  const t = tournamentOf(tid);
+  const t = findTournament(tid);
   if (!t) return;
   let m = null, title = '';
   if (t.finals) {
@@ -1851,7 +1897,10 @@ function showMatchModal(ref) {
     else if (kind === 'q') { m = t.qual.rounds[+a].matches[+b]; title = ROUND_LABEL['Q' + (+a + 1)]; }
   }
   if (!m) return;
-  const body = !m.played
+  const body = (m.setsTrimmed)
+    ? `<p class="mb">${playerName(m.a)} <b>vs</b> ${playerName(m.b)}　胜者：<b class="up">${playerName(m.winner)}</b></p>
+       <p class="muted">逐局比分已归档（存档体积兜底，仅保留胜负与晋级结构）。</p>`
+    : !m.played
     ? '<p class="muted">比赛尚未进行。</p>'
     : `<p class="mb">${playerName(m.a)} <b>vs</b> ${playerName(m.b)}　胜者：<b class="up">${playerName(m.winner)}</b></p>
        <table><tr><th>局</th><th>${playerName(m.a)}</th><th>${playerName(m.b)}</th><th>结果</th></tr>
@@ -1908,6 +1957,39 @@ function renderRankings() {
   </div>`;
 }
 /* ---------- 9.4 我的数据 ---------- */
+// 历史比赛轮次标签（资格赛/总决赛/正赛按签表标注）
+function histRoundLabel(x) {
+  if (x.round[0] === 'Q') return ROUND_LABEL['Q' + x.round.slice(1)];
+  if (x.round.startsWith('RR')) return ROUND_LABEL[x.round];
+  if (x.round === 'FINALSF') return '半决赛';
+  if (x.round === 'FINALF') return '决赛';
+  return mainRoundLabel(x.level, x.round);
+}
+// 历史比赛列表（9.4：倒序、最近 30 条 + 展开全部；点击跳转该场签表并高亮）
+function renderHistoryBlock() {
+  const h = state.history.slice().reverse();
+  if (!h.length) return '';
+  const shown = UI.histAll ? h : h.slice(0, 30);
+  const rows = shown.map((x) => {
+    const idx = state.history.indexOf(x);
+    const tName = x.tournamentName || ((findTournament(x.tournamentId) || {}).name) || '（已归档赛事）';
+    const opp = playerById(x.oppId);
+    const setsTxt = x.sets.map(s2 => `${s2[0]}:${s2[1]}`).join('　');
+    return `<tr style="cursor:pointer" onclick="PT.a('histOpen',${idx})">
+      <td class="muted small">第${x.season}季<br>第${x.day}日</td>
+      <td>${lvBadge(x.level)} <span class="small">${esc(tName)}</span><br>
+        <span class="muted small">${histRoundLabel(x)}</span></td>
+      <td>${esc(opp.name)}<br><span class="muted small">#${x.oppRank != null ? x.oppRank : opp.ranking}</span></td>
+      <td><b class="${x.result === 'W' ? 'up' : 'down'}">${x.result === 'W' ? '胜' : '负'}</b></td>
+      <td class="small">${setsTxt}</td>
+      <td class="small">${x.pointsEarned ? '+' + x.pointsEarned : '—'}</td></tr>`;
+  }).join('');
+  return `<div class="card">
+    <h3>历史比赛（${state.history.length} 场）</h3>
+    <table><tr><th>赛日</th><th>赛事 / 轮次</th><th>对手</th><th>胜负</th><th>逐局比分（你:对手）</th><th>积分</th></tr>${rows}</table>
+    ${state.history.length > 30 ? `<button class="btn btn-ghost btn-block mt" onclick="PT.a('histToggle')">${UI.histAll ? '收起' : '展开全部（' + state.history.length + ' 场）'}</button>` : ''}
+  </div>`;
+}
 function renderProfile() {
   const u = state.user;
   const h = state.history;
@@ -1939,6 +2021,7 @@ function renderProfile() {
       <div class="stat"><div class="v">#${u.bestRanking}</div><div class="k">历史最高排名</div></div>
       <div class="stat"><div class="v">${u.streak} 天</div><div class="k">连续训练</div></div>
     </div></div>
+  ${renderHistoryBlock()}
   <div class="card">
     <h3>积分走势（按赛日）</h3>
     ${u.pointsLog.length ? '<canvas id="pts-chart" class="chart"></canvas>' : '<p class="muted">完成首个比赛日后生成走势图。</p>'}
@@ -2134,7 +2217,39 @@ function handleAction(name, arg, arg2, arg3) {
     case 'pageRank': state.ui.rankPage = arg; break;
     case 'jumpMe': state.ui.rankQuery = ''; state.ui.rankPage = Math.floor((state.user.ranking - 1) / RANK_PAGE); break;
     case 'selT': state.ui.calView = arg; save(); break; // 进入独立对阵界面（9.2）
-    case 'calBack': state.ui.calView = null; save(); break;
+    case 'calBack': // 返回（赛历或我的数据，视进入来源）
+      state.ui.calView = null; state.ui.calHighlight = null;
+      state.ui.tab = state.ui.calBackTab || 'calendar'; state.ui.calBackTab = null;
+      save(); break;
+    case 'histToggle': UI.histAll = !UI.histAll; break;
+    case 'histOpen': { // 9.4：从历史比赛跳转该场签表（跨赛季归档可查），并滚动定位高亮
+      const x = state.history[+arg];
+      if (!x) break;
+      const t = findTournament(x.tournamentId);
+      if (!t) { // 降级：签表彻底不可用时弹出比分详情卡
+        openModal(`<h3>${esc(x.tournamentName || '历史赛事')} · 比分详情</h3>
+          <p class="muted small mb">该赛事签表已不在存档中（极端裁剪），仅保留本场记录。</p>
+          <table><tr><th>局</th><th>你</th><th>对手</th></tr>
+          ${x.sets.map((s2, i) => `<tr><td>第 ${i + 1} 局</td><td>${s2[0]}</td><td>${s2[1]}</td></tr>`).join('')}</table>
+          <div class="btn-row"><button class="btn btn-sm" onclick="PT.a('closeModal')">关闭</button></div>`);
+        break;
+      }
+      let ref = null;
+      if (t.finals) {
+        if (x.round[0] === 'R') { const d = +x.round.slice(2) - 1; ref = 'rr:' + d + ':' + Math.max(0, t.rr[d].findIndex(m => m.a === USER_ID || m.b === USER_ID)); }
+        else if (x.round === 'FINALSF') ref = 'sf:0:' + Math.max(0, t.sf.findIndex(m => m && (m.a === USER_ID || m.b === USER_ID)));
+        else ref = 'f:0:0';
+      } else if (x.round[0] === 'Q') {
+        const qd = +x.round.slice(1) - 1;
+        ref = 'q:' + qd + ':' + Math.max(0, t.qual.rounds[qd].matches.findIndex(m => m.a === USER_ID || m.b === USER_ID));
+      } else {
+        const ri = Math.max(0, t.rounds.findIndex(r => r.name === x.round));
+        ref = 'm:' + ri + ':' + Math.max(0, t.rounds[ri].matches.findIndex(m => m.a === USER_ID || m.b === USER_ID));
+      }
+      state.ui.tab = 'calendar'; state.ui.calView = t.id; state.ui.calHighlight = ref; state.ui.calBackTab = 'profile';
+      save();
+      break;
+    }
     case 'showMatch': showMatchModal(arg); break;
     case 'closeModal': closeModal(); break;
     case 'export': exportSave(); break;
