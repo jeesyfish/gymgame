@@ -1957,6 +1957,37 @@ function renderRankings() {
   </div>`;
 }
 /* ---------- 9.4 我的数据 ---------- */
+// 最佳成绩口径（9.4）：冠军仅在真正赢得正赛决赛时计入；资格赛/早期轮的胜利≠冠军。
+// 单场比赛映射"至少到达档"：胜 → 下一轮（赢决赛=冠军）；负 → 出局轮；资格赛胜 = 正赛首轮。
+const BEST_ORDER = { Q1:0, Q2:1, Q3:2, R128:3, R64:4, R32:5, R16:6, QF:7, RR:7.5, SF:8, F:9, W:10 };
+function computeBestByLevel(hist) {
+  const byT = {};
+  for (const x of hist) {
+    const g = byT[x.tournamentId] || (byT[x.tournamentId] = { level: x.level,
+      name: x.tournamentName || ((findTournament(x.tournamentId) || {}).name) || x.tournamentId });
+    const arr = ROUND_NAMES[LEVEL_META[x.level].drawSize];
+    let reach = null;
+    if (x.round[0] === 'Q') reach = x.result === 'W' ? arr[0] : x.round;
+    else if (x.round === 'FINALSF') reach = x.result === 'W' ? 'F' : 'SF';
+    else if (x.round === 'FINALF') reach = x.result === 'W' ? 'W' : 'F';
+    else if (x.round.startsWith('RR')) reach = 'RR';
+    else reach = x.result === 'W' ? (x.round === 'F' ? 'W' : arr[arr.indexOf(x.round) + 1]) : x.round;
+    if (g.reach == null || BEST_ORDER[reach] > BEST_ORDER[g.reach]) g.reach = reach;
+  }
+  const best = {};
+  for (const tid in byT) {
+    const g = byT[tid];
+    if (!(g.level in best) || BEST_ORDER[g.reach] > BEST_ORDER[best[g.level].reach]) best[g.level] = g;
+  }
+  return best;
+}
+function bestReachText(level, reach) {
+  if (reach === 'W') return '<b class="up">冠军</b>';
+  if (reach === 'F') return '亚军';
+  if (reach === 'RR') return '小组赛';
+  if (reach[0] === 'Q') return ROUND_LABEL['Q' + reach.slice(1)];
+  return mainRoundLabel(level, reach);
+}
 // 历史比赛轮次标签（资格赛/总决赛/正赛按签表标注）
 function histRoundLabel(x) {
   if (x.round[0] === 'Q') return ROUND_LABEL['Q' + x.round.slice(1)];
@@ -1995,15 +2026,10 @@ function renderProfile() {
   const h = state.history;
   const wins = h.filter(x => x.result === 'W').length, losses = h.length - wins;
   const titles = h.filter(x => x.round === 'W' || x.round === 'FINALF' && x.result === 'W').length;
-  // 各级别最佳成绩
-  const best = {};
-  for (const x of h) {
-    const reach = x.result === 'W' ? 'W' : x.round;
-    if (!(x.level in best) || ROUND_ORDER[reach] > ROUND_ORDER[best[x.level].reach])
-      best[x.level] = { reach, name: tournamentOf(x.tournamentId) ? tournamentOf(x.tournamentId).name : x.tournamentId };
-  }
+  // 各级别最佳成绩（9.4 口径：仅真正夺冠才显示冠军）
+  const best = computeBestByLevel(h);
   const bestRows = Object.keys(LEVEL_META).filter(l => best[l]).map(l =>
-    `<tr><td>${lvBadge(l)}</td><td>${best[l].reach === 'W' ? '<b class="up">冠军</b>' : mainRoundLabel(l, best[l].reach)}</td>
+    `<tr><td>${lvBadge(l)}</td><td>${bestReachText(l, best[l].reach)}</td>
      <td class="muted">${esc(best[l].name)}</td></tr>`).join('');
   // 玩家录入均次（参考线对比）
   const allSets = h.flatMap(x => x.sets);
