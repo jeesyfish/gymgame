@@ -1108,14 +1108,7 @@ function generateDayEvents(rel, userEntry) {
     t._directEnts = selectDirect(t, false);
     const directIds = new Set(t._directEnts.map(p => p.id));
     t._qualEnts = selectQualifiers(t, directIds);
-    // 11.3 留洞：报名过少（不足半个正赛签表）的赛事取消 —— 不产生全员轮空的"幽灵冠军"；玩家已报名的赛事不取消
-    if (t._directEnts.length + t._qualEnts.length < Math.max(8, t.drawSize / 2)
-        && !(userEntry && userEntry.event === e)) {
-      state.tournaments.push({ id: t.id, slotIndex: t.slotIndex, level: t.level, name: t.name,
-        status: 'cancelled', startDay: t.startDay, userStatus: 'notEntered', cancelled: true,
-        alive: [], qual: { rounds: [], winners: [] }, rounds: [] });
-      continue;
-    }
+    // 11.3 留洞：报名不足时不取消赛事 —— 签位空出，人不够的场次（含资格赛第 1 轮）轮空晋级，正赛照常打完
     if (userEntry && userEntry.event === e) {
       t.userEntry = userEntry.form;
       if (userEntry.form === 'direct') fillDraw(t, forceUserInto(t, 'direct'), t._qualEnts);
