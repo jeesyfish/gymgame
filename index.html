@@ -163,6 +163,13 @@ const ROUND_NAMES = {
 const ROUND_LABEL = { R128:'首轮', R64:'次轮', R32:'第三轮', R16:'16强战', QF:'1/4决赛', SF:'半决赛', F:'决赛',
   RR1:'小组赛第1轮', RR2:'小组赛第2轮', RR3:'小组赛第3轮', FINALSF:'半决赛', FINALF:'决赛',
   Q1:'资格赛第1轮', Q2:'资格赛第2轮', Q3:'资格赛决胜轮' };
+// 正赛轮次标注：第 k 轮（N 强），按签表大小推导（修复 32 签首轮误标"第三轮"）
+const ROUND_OF = { R128:'128强', R64:'64强', R32:'32强', R16:'16强', QF:'八强', SF:'半决赛', F:'决赛' };
+function mainRoundLabel(level, name) {
+  const arr = ROUND_NAMES[LEVEL_META[level].drawSize];
+  const i = arr.indexOf(name);
+  return '正赛第 ' + (i + 1) + ' 轮（' + (ROUND_OF[name] || name) + '）';
+}
 // 轮次 -> 积分表行键（第 6.1 章）
 const ROW_KEY = { R128:'r128', R64:'r64', R32:'r32', R16:'r16', QF:'qf', SF:'sf', F:'final', W:'winner' };
 // 最佳成绩比较顺序
@@ -303,12 +310,23 @@ const COUNTRIES = [['西班牙','ESP'],['法国','FRA'],['美国','USA'],['塞�
 const NAME_POOLS = {
   GS: ['澳大利亚网球公开赛','法国网球公开赛','温布尔登网球锦标赛','美国网球公开赛'],
   MASTERS: ['印第安维尔斯大师赛','迈阿密大师赛','蒙特卡洛大师赛','马德里大师赛','罗马大师赛','加拿大大师赛'],
-  ATP500: ['巴塞罗那公开赛','东京公开赛','维也纳公开赛','巴塞尔公开赛','汉堡公开赛'],
+  ATP500: ['巴塞罗那公开赛','东京公开赛','维也纳公开赛','巴塞尔公开赛','汉堡公开赛','鹿特丹公开赛','伦敦女王杯','北京公开赛'],
   ATP250: ['奥克兰公开赛','马赛公开赛','德拉海滩公开赛','休斯顿公开赛','慕尼黑公开赛','洛斯卡沃斯公开赛',
-    '温斯顿-塞勒姆公开赛','孟菲斯公开赛','萨格勒布公开赛'],
+    '温斯顿-塞勒姆公开赛','孟菲斯公开赛','萨格勒布公开赛','蒙彼利埃公开赛','埃斯托里尔公开赛','安特卫普公开赛',
+    '巴斯塔德公开赛','乌玛格公开赛','纽波特公开赛'],
   CHALLENGER: ['布拉格','华沙','首尔','曼谷','开罗','布宜诺斯艾利斯','圣地亚哥','里斯本','赫尔辛基','卡尔斯鲁厄',
-    '釜山','都灵','帕尔马','科尔多瓦','坎皮纳斯','雷恩','波尔图','伊斯坦布尔','约翰内斯堡','深圳','昆明','成都'],
-  ITF: ['莫纳斯提尔','拉夫堡','佩奇','莫纳斯提尔','第比利斯','安塔利亚','莫纳斯提尔','圣多明各','卡尔顿','莫纳斯提尔'],
+    '釜山','都灵','帕尔马','科尔多瓦','坎皮纳斯','雷恩','波尔图','伊斯坦布尔','约翰内斯堡','深圳','昆明','成都',
+    '赫罗纳','奥尔良','布伦瑞克','坦佩雷','乌得勒支','列日','贝加莫','科佩尔'],
+  ITF: ['拉夫堡','赫尔辛基','华沙','布拉格','维也纳','布达佩斯','雅典','索非亚','贝尔格莱德','萨格勒布',
+    '卢布尔雅那','布拉迪斯拉发','塔林','里加','维尔纽斯','基辅','克卢日','雅西','塞维利亚','瓦伦西亚',
+    '马拉加','帕尔马','卡利亚里','巴里','热那亚','都灵','伯尔尼','巴塞尔','阿姆斯特丹','布鲁塞尔',
+    '哥本哈根','奥斯陆','斯德哥尔摩','雷克雅未克','莫纳斯提尔','突尼斯城','开罗','亚历山大','拉巴特',
+    '卡萨布兰卡','达喀尔','阿克拉','拉各斯','内罗毕','约翰内斯堡','开普敦','阿尔及尔','曼谷','清迈',
+    '河内','胡志明市','金边','马尼拉','雅加达','吉隆坡','新加坡','孟买','新德里','班加罗尔',
+    '科伦坡','达卡','伊斯兰堡','拉合尔','迪拜','多哈','阿布扎比','利雅得','马斯喀特','安曼',
+    '贝鲁特','圣多明各','波哥大','麦德林','基多','利马','圣地亚哥','布宜诺斯艾利斯','科尔多瓦','蒙得维的亚',
+    '亚松森','里约','圣保罗','巴西利亚','坎皮纳斯','墨西哥城','瓜达拉哈拉','蒙特雷','多伦多','温哥华',
+    '卡尔加里','奥斯汀','萨克拉门托','布里斯班','珀斯','阿德莱德','奥克兰','惠灵顿','克赖斯特彻奇','苏瓦'],
 };
 function tournamentNameOf(level, idx) {
   if (level === 'FINALS') return 'ATP年终总决赛';
@@ -368,12 +386,19 @@ function buildCalendar(template) {
   const cal = [];
   let slot = 0;
   const counters = {};
+  const usedNames = new Set(); // 同赛季赛事名唯一：重名追加"·第N站"
+  const uniqueName = base => {
+    let name = base, k = 2;
+    while (usedNames.has(name)) name = base + '·第' + (k++) + '站';
+    usedNames.add(name);
+    return name;
+  };
   const itfN = Math.max(0, cfgSafeItf());
   for (let w = 1; w <= TOTAL_WEEKS; w++) {
     const list = (template[w - 1] || []).slice();
     if (w === FINALS_WEEK) { // 年终总决赛独占一周（5.4）；总决赛为邀请赛，不设资格赛
       cal.push({ id: `S${state.season.number}-FIN`, slotIndex: slot++, week: w, startDay: (w - 1) * 7 + 1,
-        level: 'FINALS', name: tournamentNameOf('FINALS', 0), duration: 5 });
+        level: 'FINALS', name: uniqueName(tournamentNameOf('FINALS', 0)), duration: 5 });
     }
     // 本周全部赛事（常规 + ITF 注入，总决赛周与收官周同样注入 ITF，低排名选手全程有赛可打）
     const all = (w === FINALS_WEEK ? [] : list.filter(lv => LEVEL_META[lv] && lv !== 'FINALS')
@@ -391,7 +416,7 @@ function buildCalendar(template) {
         const sd = Math.min((w - 1) * 7 + offs[i] + 1, SEASON_DAYS - dur + 1);
         cal.push({ id: `S${state.season.number}-T${String(slot + 1).padStart(2, '0')}`, slotIndex: slot++,
           week: w, startDay: sd, level: t.level,
-          name: tournamentNameOf(t.level, idx), duration: dur });
+          name: uniqueName(tournamentNameOf(t.level, idx)), duration: dur });
       });
     }
   }
@@ -1379,7 +1404,7 @@ function createProfile(maxReps) {
     skipReport: null,    // 远期报名快进后的跳过简报
     userEntry: null,     // 玩家手动报名的预约（开赛日兑现；单席位制）
     seasonSummary: null, // 赛季收官总结快照（滚动时捕获，供总结视图展示）
-    ui: { tab: 'today', rankPage: 0, rankQuery: '', calId: null },
+    ui: { tab: 'today', rankPage: 0, rankQuery: '', calId: null, calView: null },
   };
   state.players = genPool(state.config.current);
   state.season.calendar = buildCalendar(state.config.current.calendarTemplate);
@@ -1506,7 +1531,7 @@ function tomorrowText() {
     const t = tournamentOf(state.today.tournamentId);
     const opp = playerById(state.today.oppId);
     const rLabel = state.today.qualRound != null ? ROUND_LABEL['Q' + (state.today.qualRound + 1)]
-      : state.today.finals ? roundLabelOf(t, state.today.day) : ROUND_LABEL[t.rounds[state.today.roundIdx].name];
+      : state.today.finals ? roundLabelOf(t, state.today.day) : mainRoundLabel(t.level, t.rounds[state.today.roundIdx].name);
     return `下一赛日：${lvBadge(t.level)} ${esc(t.name)} · ${rLabel}　对阵 <b>${esc(opp.name)}</b>（#${opp.ranking}）`;
   }
   if (state.userEntry && state.userEntry.startDay > state.season.day)
@@ -1670,7 +1695,7 @@ function renderMatch() {
   const tour = tournamentOf(t.tournamentId);
   const opp = playerById(t.oppId);
   const rLabel = t.qualRound != null ? ROUND_LABEL['Q' + (t.qualRound + 1)]
-    : t.finals ? roundLabelOf(tour, t.day) : ROUND_LABEL[tour.rounds[t.roundIdx].name];
+    : t.finals ? roundLabelOf(tour, t.day) : mainRoundLabel(tour.level, tour.rounds[t.roundIdx].name);
   const decided = t.uw === 2 || t.ow === 2;
   let flow = '';
   const setsHtml = t.sets.map((s, i) =>
@@ -1711,6 +1736,11 @@ function renderMatch() {
 }
 /* ---------- 9.2 赛程日历 ---------- */
 function renderCalendar() {
+  if (state.ui.calView) { // 9.2：点击赛事进入独立对阵界面（含已结束赛事的历史对阵）
+    return `<div class="row mb" style="justify-content:flex-start">
+        <button class="btn btn-ghost btn-sm" onclick="PT.a('calBack')">← 返回赛历</button></div>
+      ${renderDrawPanel(state.ui.calView)}`;
+  }
   const weeks = [];
   for (let w = 1; w <= TOTAL_WEEKS; w++) {
     const evs = state.season.calendar.filter(e => e.week === w);
@@ -1732,9 +1762,7 @@ function renderCalendar() {
       }).join('')}
     </div>`);
   }
-  const tid = state.ui.calId;
-  return `<div class="card"><h3>第 ${state.season.number} 赛季 · 18 周赛历</h3>${weeks.join('')}</div>
-    ${tid ? renderDrawPanel(tid) : `<div class="card"><p class="muted">点击上方赛事色块查看完整签表（可点开任意一场看逐局比分）。</p></div>`}`;
+  return `<div class="card"><h3>第 ${state.season.number} 赛季 · 20 周赛历</h3>${weeks.join('')}</div>`;
 }
 // 签表面板：逐轮树状展示，玩家路径高亮，点开看逐局比分
 function renderDrawPanel(tid) {
@@ -1748,7 +1776,7 @@ function renderDrawPanel(tid) {
   if (t.finals) return `<div class="card">${head}${renderFinalsDraw(t)}</div>`;
   const qualHtml = t.qual.rounds.map((qr, qd) => `<div class="draw-r"><h4>${ROUND_LABEL['Q' + (qd + 1)]}</h4>
     ${qr.matches.map((m, mi) => renderMatchBoxQ(t, qd, mi, m)).join('')}</div>`).join('');
-  const roundsHtml = t.rounds.map((r, ri) => `<div class="draw-r"><h4>${ROUND_LABEL[r.name]}</h4>
+  const roundsHtml = t.rounds.map((r, ri) => `<div class="draw-r"><h4>${mainRoundLabel(t.level, r.name)}</h4>
     ${r.matches.map((m, mi) => renderMatchBox(t, ri, mi, m)).join('')}</div>`).join('');
   return `<div class="card">${head}<div class="draw">${qualHtml}${roundsHtml}</div></div>`;
 }
@@ -1819,7 +1847,7 @@ function showMatchModal(ref) {
     else { m = t.f; title = '决赛'; }
   } else {
     const [kind, a, b] = loc.split(':');
-    if (kind === 'm') { m = t.rounds[+a].matches[+b]; title = ROUND_LABEL[t.rounds[+a].name]; }
+    if (kind === 'm') { m = t.rounds[+a].matches[+b]; title = mainRoundLabel(t.level, t.rounds[+a].name); }
     else if (kind === 'q') { m = t.qual.rounds[+a].matches[+b]; title = ROUND_LABEL['Q' + (+a + 1)]; }
   }
   if (!m) return;
@@ -1893,7 +1921,7 @@ function renderProfile() {
       best[x.level] = { reach, name: tournamentOf(x.tournamentId) ? tournamentOf(x.tournamentId).name : x.tournamentId };
   }
   const bestRows = Object.keys(LEVEL_META).filter(l => best[l]).map(l =>
-    `<tr><td>${lvBadge(l)}</td><td>${best[l].reach === 'W' ? '<b class="up">冠军</b>' : ROUND_LABEL[best[l].reach] || best[l].reach}</td>
+    `<tr><td>${lvBadge(l)}</td><td>${best[l].reach === 'W' ? '<b class="up">冠军</b>' : mainRoundLabel(l, best[l].reach)}</td>
      <td class="muted">${esc(best[l].name)}</td></tr>`).join('');
   // 玩家录入均次（参考线对比）
   const allSets = h.flatMap(x => x.sets);
@@ -2105,7 +2133,8 @@ function handleAction(name, arg, arg2, arg3) {
     case 'rankQuery': state.ui.rankQuery = arg; state.ui.rankPage = 0; UI.refocus = true; break;
     case 'pageRank': state.ui.rankPage = arg; break;
     case 'jumpMe': state.ui.rankQuery = ''; state.ui.rankPage = Math.floor((state.user.ranking - 1) / RANK_PAGE); break;
-    case 'selT': state.ui.calId = state.ui.calId === arg ? null : arg; save(); break;
+    case 'selT': state.ui.calView = arg; save(); break; // 进入独立对阵界面（9.2）
+    case 'calBack': state.ui.calView = null; save(); break;
     case 'showMatch': showMatchModal(arg); break;
     case 'closeModal': closeModal(); break;
     case 'export': exportSave(); break;
@@ -2239,7 +2268,7 @@ function doSubmit(n) {
 function settlementRound(t, res) {
   if (res.qualRound != null) return ROUND_LABEL['Q' + (res.qualRound + 1)];
   if (t.finals) return res.day <= 3 ? `小组赛第 ${res.day} 轮` : res.day === 4 ? '半决赛' : '决赛';
-  return ROUND_LABEL[t.rounds[res.roundIdx].name];
+  return mainRoundLabel(t.level, t.rounds[res.roundIdx].name);
 }
 function settlementStatus(t, res) {
   if (res.qualRound != null) {
