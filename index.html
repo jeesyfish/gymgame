@@ -72,7 +72,8 @@ hr{border:none;border-top:1px solid var(--line);margin:12px 0}
 .match-score span{padding:4px 14px;border-radius:10px;background:var(--soft);border:1px solid var(--line)}
 .opp-card{display:flex;justify-content:space-between;gap:10px;align-items:center}
 .opp-name{font-size:17px;font-weight:800}
-table{width:100%;border-collapse:collapse;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13px;display:block;overflow-x:auto}
+/* display:block 使表格自身成为横向滚动容器：窄屏下列宽超出时在表内滚动，不撑破页面级横向滚动（fixed 页签栏宽度/定位依赖页面无横向溢出） */
 th,td{padding:7px 6px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
 th{color:var(--muted);font-weight:600;font-size:12px}
 tr.me td{background:#FFF7E0;font-weight:700}
