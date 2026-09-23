@@ -83,6 +83,19 @@ tr.me td{background:#FFF7E0;font-weight:700}
 .chip.ch-active{outline:3px solid #FDD835}
 .chip.ch-done{opacity:.55}
 .chip .chip-d{display:block;font-size:11px;opacity:.9;font-weight:400}
+/* 9.2 玩家参与赛事高亮 + 状态徽章 */
+.chip.ch-me{box-shadow:0 0 0 3px rgba(249,168,37,.9),0 2px 6px rgba(0,0,0,.18)}
+.chip.ch-done.ch-me{box-shadow:0 0 0 3px rgba(249,168,37,.45)}
+.pbadge{display:inline-flex;align-items:center;gap:4px;margin:2px 0 0 6px;padding:1px 8px;border-radius:12px;
+  font-size:11px;font-weight:800;color:#FFF;vertical-align:middle;line-height:1.5}
+.pbadge i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.95);flex:none}
+.pb-live{background:#2E9E5B}.pb-live i{animation:pbpulse 1.2s infinite}
+.pb-out{background:#8D9BA6}
+.pb-champ{background:linear-gradient(135deg,#D9B23A,#B8860B)}
+.pb-ent{background:#1E88E5}
+.pbadge em{font-style:normal;font-weight:600;opacity:.92}
+@keyframes pbpulse{0%,100%{opacity:1}50%{opacity:.3}}
+@media (max-width:400px){.pbadge em{display:none}.pbadge{padding:1px 6px;font-size:10px;margin-left:4px}}
 .draw{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px}
 .draw-r{flex:1 0 118px;min-width:118px}
 .draw-r h4{font-size:12px;color:var(--muted);text-align:center;margin-bottom:6px}
@@ -1772,6 +1785,41 @@ function renderMatch() {
     </div>${flow}`;
 }
 /* ---------- 9.2 赛程日历 ---------- */
+// 玩家参与赛事的状态徽章：进行中（实时轮次/脉冲）、止步（出局轮）、冠军（金色）、已报名（远期预约）
+function playerChipBadge(e, t) {
+  const short = s2 => s2.replace('正赛第 ', 'R').replace(/（.*?）/g, '');
+  if (t) {
+    if (t.userStatus === 'champion') return { cls: 'pb-champ', txt: '冠军' };
+    if (t.userStatus === 'alive') {
+      let r = '';
+      if (t.finals) r = roundLabelOf(t, t.day);
+      else if (t.userEntry === 'qual' && state.season.day - t.startDay <= 2) r = '资格赛 R' + (state.season.day - t.startDay + 1);
+      else {
+        const ri = state.season.day - t.startDay - 3;
+        r = (ri >= 0 && t.rounds[ri]) ? short(mainRoundLabel(t.level, t.rounds[ri].name)) : '正赛';
+      }
+      return { cls: 'pb-live', txt: '进行中', detail: r };
+    }
+    if (t.userStatus === 'eliminated') {
+      if (t.finals) {
+        const played = [...t.rr.flat(), ...t.sf, t.f].filter(m => m && m.played && (m.a === USER_ID || m.b === USER_ID));
+        const last = played[played.length - 1];
+        if (last && t.f === last) return { cls: 'pb-out', txt: '亚军', detail: '总决赛' };
+        return { cls: 'pb-out', txt: '止步', detail: last && t.sf.includes(last) ? '半决赛' : '小组赛' };
+      }
+      let r = '';
+      for (let qd = 0; qd < 3 && !r; qd++) for (const m of t.qual.rounds[qd].matches)
+        if (m.played && (m.a === USER_ID || m.b === USER_ID) && m.winner !== USER_ID) { r = '资格赛 R' + (qd + 1); break; }
+      if (!r) for (const rd of t.rounds) { let f = false;
+        for (const m of rd.matches) if (m.played && (m.a === USER_ID || m.b === USER_ID) && m.winner !== USER_ID) { f = true; break; }
+        if (f) { r = mainRoundLabel(t.level, rd.name).replace(/（.*?）/g, ''); break; } }
+      return { cls: 'pb-out', txt: '止步', detail: r };
+    }
+  } else if (state.userEntry && state.userEntry.eventId === e.id) {
+    return { cls: 'pb-ent', txt: '已报名', detail: (e.startDay - state.season.day) + '天后开赛' };
+  }
+  return null;
+}
 function renderCalendar() {
   if (state.ui.calView) { // 9.2：点击赛事进入独立对阵界面（含已结束赛事的历史对阵）
     return `<div class="row mb" style="justify-content:flex-start">
@@ -1785,17 +1833,17 @@ function renderCalendar() {
     weeks.push(`<div class="cal-week">
       <div class="cal-week-t">第 ${w} 周 · 赛日 ${dayMin}~${dayMax}</div>
       ${evs.map(e => {
-        const t = tournamentOf(e.id);
+        const t = findTournament(e.id);
         let cls = 'chip lv-' + e.level, status = '';
         if (t) {
           if (t.status === 'completed') { cls += ' ch-done'; status = '已结束'; }
-          else { status = '进行中'; if (t.userStatus === 'alive') cls += ' ch-active'; }
-          if (t.champion === USER_ID) status += ' · 你是冠军';
-          else if (t.userStatus === 'champion') status += ' · 夺冠';
+          else status = '进行中';
         } else status = '未开赛';
-        const userIn = t && t.userStatus !== 'notEntered';
-        return `<button class="${cls}" onclick="PT.a('selT','${e.id}')"><b>${esc(e.name)}</b>
-          <span class="chip-d">D${e.startDay}~${e.startDay + e.duration - 1}${userIn ? ' · 已参赛' : ''}${status ? ' · ' + status : ''}</span></button>`;
+        const badge = playerChipBadge(e, t);
+        if (badge) cls += ' ch-me';
+        const bHtml = badge ? `<span class="pbadge ${badge.cls}"><i></i>${badge.txt}${badge.detail ? ` <em>${esc(badge.detail)}</em>` : ''}</span>` : '';
+        return `<button class="${cls}" onclick="PT.a('selT','${e.id}')"><b>${esc(e.name)}</b>${bHtml}
+          <span class="chip-d">D${e.startDay}~${e.startDay + e.duration - 1}${status && !badge ? ' · ' + status : ''}</span></button>`;
       }).join('')}
     </div>`);
   }
