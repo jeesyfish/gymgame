@@ -54,8 +54,9 @@ select.input{font-size:14px}
 hr{border:none;border-top:1px solid var(--line);margin:12px 0}
 .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:700;color:#FFF;line-height:1.6}
 .lv-GS{background:var(--gold)}.lv-MASTERS{background:var(--purple)}.lv-ATP500{background:var(--blue)}
-.lv-ATP250{background:var(--green2)}.lv-CHALLENGER{background:var(--gray)}.lv-FINALS{background:var(--red)}
-.lv-ITF{background:var(--brown)}
+.lv-ATP250{background:var(--green2)}
+.lv-CH125,.lv-CH100,.lv-CH75,.lv-CH50{background:var(--brown)}.lv-FINALS{background:var(--red)}
+.lv-ITF{background:var(--gray)}
 .tag{display:inline-block;padding:2px 8px;border-radius:6px;background:var(--soft);border:1px solid var(--line);
   font-size:12px;color:var(--muted)}
 .tag-strong{background:#E8F5E9;border-color:#A5D6A7;color:var(--green-d);font-weight:700}
@@ -77,10 +78,23 @@ table{width:100%;border-collapse:collapse;font-size:13px;display:block;overflow-
 th,td{padding:7px 6px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
 th{color:var(--muted);font-weight:600;font-size:12px}
 tr.me td{background:#FFF7E0;font-weight:700}
+/* 弹窗内的窄报告（「最近 5 场战报」）：行卡片式布局，内容自适应换行，窄屏一次性完整展示、无需横向拖动 */
+.mlist{border-top:1px solid var(--line)}
+.mrow{padding:8px 0;border-bottom:1px solid var(--line)}
+.mrow-h{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.mrow-h .badge{font-size:10px;padding:1px 6px}
+.mrow-ev{font-size:13px;font-weight:700;overflow-wrap:anywhere}
+.mrow-rd{font-size:11px;color:var(--muted)}
+.mrow-wl{margin-left:auto;font-size:13px}
+.mrow-b{display:flex;flex-wrap:wrap;gap:2px 10px;margin-top:3px;font-size:12px;color:var(--muted)}
+.mrow-opp{color:var(--text);overflow-wrap:anywhere}
+.mrow-sc{margin-left:auto;font-variant-numeric:tabular-nums}
 .up{color:var(--green);font-weight:700}.down{color:var(--red);font-weight:700}.flat{color:var(--muted)}
 /* ==================== 签表 ==================== */
-.cal-week{margin-bottom:10px}
+.cal-week{margin-bottom:10px;scroll-margin-top:72px}
 .cal-week-t{font-size:13px;font-weight:800;color:var(--muted);margin-bottom:5px}
+.cal-week.cal-cur .cal-week-t{color:var(--green)}
+.cal-week.cal-cur .cal-week-t::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;vertical-align:1px}
 .chip{display:inline-block;margin:0 6px 6px 0;padding:6px 10px;border-radius:9px;color:#FFF;font-size:12.5px;
   cursor:pointer;border:none;text-align:left}
 .chip.ch-active{outline:3px solid #FDD835}
@@ -157,14 +171,18 @@ const SAVE_KEY = 'pushupTennis.save.v1';   // 存档键（schema v1，见第 8 �
 const USER_ID  = 1001;                     // 玩家固定 id（AI 为 1~1000）
 
 // 赛事级别元数据：签表 / 轮数 / 种子数 / 入围排名门槛（第 5.1 章）
+// qualAdvance = 资格赛晋级正赛名额（5.1：大满贯 16 / 大师赛 8 / 32 签赛事 4）；资格赛签表 = qualAdvance × 8（3 轮单败取满）
 const LEVEL_META = {
-  GS:        { label:'大满贯', drawSize:128, seeds:32, rounds:7, cutoff:900,  color:'var(--gold)',   rank:6 },
-  MASTERS:   { label:'大师赛', drawSize:64,  seeds:8,  rounds:6, cutoff:800,  color:'var(--purple)', rank:5 },
-  ATP500:    { label:'ATP500', drawSize:32,  seeds:8,  rounds:5, cutoff:600,  color:'var(--blue)',   rank:4 },
-  ATP250:    { label:'ATP250', drawSize:32,  seeds:8,  rounds:5, cutoff:500,  color:'var(--green2)', rank:3 },
-  CHALLENGER:{ label:'挑战赛', drawSize:32,  seeds:8,  rounds:5, cutoff:null, color:'var(--gray)',   rank:2 },
-  ITF:       { label:'ITF未来赛', drawSize:32, seeds:8, rounds:5, cutoff:null, color:'var(--brown)', rank:1 }, // 门槛见 entryCutoff.ITF（正赛 300 / 资格赛不限，弱者优先取人）
-  FINALS:    { label:'总决赛', drawSize:8,   seeds:8,  rounds:5, cutoff:null, color:'var(--red)',    rank:7 },
+  GS:        { label:'大满贯', drawSize:128, seeds:32, rounds:7, cutoff:900,  color:'var(--gold)',   rank:60, qualAdvance:16 },
+  MASTERS:   { label:'大师赛', drawSize:64,  seeds:8,  rounds:6, cutoff:800,  color:'var(--purple)', rank:50, qualAdvance:8 },
+  ATP500:    { label:'ATP500', drawSize:32,  seeds:8,  rounds:5, cutoff:600,  color:'var(--blue)',   rank:40, qualAdvance:4 },
+  ATP250:    { label:'ATP250', drawSize:32,  seeds:8,  rounds:5, cutoff:500,  color:'var(--green2)', rank:30, qualAdvance:4 },
+  CH125:     { label:'挑战赛125', drawSize:32, seeds:8, rounds:5, cutoff:null, color:'var(--brown)', rank:24, qualAdvance:4 },
+  CH100:     { label:'挑战赛100', drawSize:32, seeds:8, rounds:5, cutoff:null, color:'var(--brown)', rank:23, qualAdvance:4 },
+  CH75:      { label:'挑战赛75', drawSize:32, seeds:8, rounds:5, cutoff:null, color:'var(--brown)', rank:22, qualAdvance:4 },
+  CH50:      { label:'挑战赛50', drawSize:32, seeds:8, rounds:5, cutoff:null, color:'var(--brown)', rank:21, qualAdvance:4 },
+  ITF:       { label:'ITF未来赛', drawSize:32, seeds:8, rounds:5, cutoff:null, color:'var(--gray)',  rank:10, qualAdvance:4 }, // 门槛见 entryCutoff.ITF（正赛 500 / 资格赛不限，弱者优先取人）
+  FINALS:    { label:'总决赛', drawSize:8,   seeds:8,  rounds:5, cutoff:null, color:'var(--red)',    rank:70 },
 };
 // ITF 未来赛在一周内的开赛偏移（每周第 1/3/5 天，相互错开）
 const ITF_OFFSETS = [0, 2, 4, 6, 1, 3, 5];
@@ -193,27 +211,28 @@ const ROW_KEY = { R128:'r128', R64:'r64', R32:'r32', R16:'r16', QF:'qf', SF:'sf'
 const ROUND_ORDER = { R128:0, R64:1, R32:2, R16:3, QF:4, SF:5, F:6, W:7, RR:2, FINALSF:5, FINALF:6 };
 
 // 20 周赛历模板（第 5.2 章）：ITF 未来赛由 buildCalendar 按 itfPerWeek 每周自动注入，不占模板
+// 挑战赛四档（5.1）：原挑战赛为 CH125，每周另设 CH100 / CH75 ×2 / CH50（总决赛周与收官周照常，低排名选手全程有赛可打）
 const DEFAULT_CALENDAR = [
-  ['ATP250','CHALLENGER','CHALLENGER'],        // W1
-  ['ATP500','ATP250','CHALLENGER','CHALLENGER'],// W2
-  ['MASTERS','CHALLENGER','CHALLENGER'],       // W3
-  ['GS','CHALLENGER','CHALLENGER'],            // W4
-  ['ATP250','ATP250','CHALLENGER'],            // W5
-  ['MASTERS','ATP500','CHALLENGER'],           // W6
-  ['ATP250','CHALLENGER','CHALLENGER'],        // W7
-  ['MASTERS','CHALLENGER','CHALLENGER'],       // W8
-  ['ATP500','ATP250','CHALLENGER'],            // W9
-  ['GS','CHALLENGER','CHALLENGER'],            // W10
-  ['MASTERS','CHALLENGER'],                    // W11
-  ['ATP250','CHALLENGER','CHALLENGER'],        // W12
-  ['MASTERS','ATP500'],                        // W13
-  ['GS','CHALLENGER','CHALLENGER'],            // W14
-  ['MASTERS','ATP250','CHALLENGER'],           // W15
-  ['ATP500','ATP250','CHALLENGER'],            // W16
-  ['GS','CHALLENGER'],                         // W17
-  ['ATP250','ATP250','CHALLENGER'],            // W18（缓冲周：吸收大满贯资格赛+正赛 10 天跨度）
-  ['FINALS'],                                  // W19 年终总决赛（第 5.4 章）
-  [],                                          // W20 休赛周（赛季收官）
+  ['ATP250','CH125','CH125','CH100','CH75','CH75','CH50'],        // W1
+  ['ATP500','ATP250','CH125','CH125','CH100','CH75','CH75','CH50'],// W2
+  ['MASTERS','CH125','CH125','CH100','CH75','CH75','CH50'],       // W3
+  ['GS','CH125','CH125','CH100','CH75','CH75','CH50'],            // W4
+  ['ATP250','ATP250','CH125','CH100','CH75','CH75','CH50'],       // W5
+  ['MASTERS','ATP500','CH125','CH100','CH75','CH75','CH50'],      // W6
+  ['ATP250','CH125','CH125','CH100','CH75','CH75','CH50'],        // W7
+  ['MASTERS','CH125','CH125','CH100','CH75','CH75','CH50'],       // W8
+  ['ATP500','ATP250','CH125','CH100','CH75','CH75','CH50'],       // W9
+  ['GS','CH125','CH125','CH100','CH75','CH75','CH50'],            // W10
+  ['MASTERS','CH125','CH100','CH75','CH75','CH50'],               // W11
+  ['ATP250','CH125','CH125','CH100','CH75','CH75','CH50'],        // W12
+  ['MASTERS','ATP500','CH100','CH75','CH75','CH50'],              // W13
+  ['GS','CH125','CH125','CH100','CH75','CH75','CH50'],            // W14
+  ['MASTERS','ATP250','CH125','CH100','CH75','CH75','CH50'],      // W15
+  ['ATP500','ATP250','CH125','CH100','CH75','CH75','CH50'],       // W16
+  ['GS','CH125','CH100','CH75','CH75','CH50'],                    // W17
+  ['ATP250','ATP250','CH125','CH100','CH75','CH75','CH50'],       // W18（缓冲周：吸收大满贯资格赛+正赛 10 天跨度）
+  ['FINALS','CH100','CH75','CH75','CH50'],                        // W19 年终总决赛（第 5.4 章）；挑战赛照常并行
+  ['CH100','CH75','CH75','CH50'],                                 // W20 收官周（低排名选手照常参赛）
 ];
 
 // 建档偏好（与赛季配置分离）：重新开始后依然保留，如 preseason 开关
@@ -234,27 +253,33 @@ function defaultConfig() {
     matchFormAmp: 2,     // 单场手感幅度 ±2
     setJitterAmp: 1,     // 单局抖动幅度 ±1
     finalsPoints: { rr:200, sf:400, f:500 }, // 总决赛积分（第 5.4 章）
-    // 5.1 双卡门槛：正赛/资格赛入围排名上限（ITF 特殊：正赛前 300、资格赛无限制）
+    // 5.1 双卡门槛：正赛/资格赛入围排名上限（ITF 特殊：正赛前 500、资格赛无限制；挑战赛四档按 ATP 设置）
     entryCutoff: {
       GS:        { main: 150, qual: 300 },
-      MASTERS:   { main: 50,  qual: 300 },
-      ATP500:    { main: 50,  qual: 300 },
+      MASTERS:   { main: 50,  qual: 200 },
+      ATP500:    { main: 50,  qual: 200 },
       ATP250:    { main: 50,  qual: 300 },
-      CHALLENGER:{ main: 100, qual: 600 },
+      CH125:     { main: 100, qual: 300 },
+      CH100:     { main: 150, qual: 400 },
+      CH75:      { main: 200, qual: 600 },
+      CH50:      { main: 300, qual: 800 },
       ITF:       { main: 500, qual: null, excludeTop: 200 }, // 前 200 名禁入 ITF
     },
     maxEventsPerWeek: 1,          // 每 AI 每赛季周（按开赛日周计）最多参赛站数，无级别豁免（5.3）；玩家豁免
     entryWindowDays: 7,           // 玩家报名窗口：今日开赛 + 未来 N 天内开赛的赛事可手动选择报名（5.3）
     attendanceRange: [0.4, 1.0],  // AI 出勤率 U[min,max]：非大满贯以该概率报名（3.1/5.3）
-    itfPerWeek: 5,                // 每周 ITF 未来赛站数（低排名选手积分来源，5.2）
-    qualPoints: { GS:8, MASTERS:4, ATP500:2, ATP250:2, CHALLENGER:1, ITF:1 }, // 资格赛每轮胜场积分（6.1）
-    // ATP 2025 真实积分表 + ITF 积分表（第 6.1 章）
+    itfPerWeek: 6,                // 每周 ITF 未来赛站数（低排名选手积分来源，5.2）
+    qualPoints: { GS:8, MASTERS:4, ATP500:2, ATP250:2, CH125:1, CH100:1, CH75:1, CH50:1, ITF:1 }, // 资格赛每轮胜场积分（6.1）
+    // ATP 2025 官方积分表 + ITF 积分表（第 6.1 章；挑战赛四档 125/100/75/50）
     pointsTable: {
       GS:        { winner:2000, final:1300, sf:800, qf:400, r16:200, r32:100, r64:50, r128:10 },
       MASTERS:   { winner:1000, final:650,  sf:400, qf:200, r16:100, r32:50,  r64:10 },
       ATP500:    { winner:500,  final:330,  sf:200, qf:100, r16:50,  r32:0 },
       ATP250:    { winner:250,  final:165,  sf:100, qf:50,  r16:25,  r32:0 },
-      CHALLENGER:{ winner:125,  final:75,   sf:45,  qf:25,  r16:10,  r32:0 },
+      CH125:     { winner:125,  final:64,   sf:35,  qf:16,  r16:8,   r32:0 },
+      CH100:     { winner:100,  final:50,   sf:25,  qf:14,  r16:7,   r32:0 },
+      CH75:      { winner:75,   final:44,   sf:22,  qf:12,  r16:6,   r32:0 },
+      CH50:      { winner:50,   final:25,   sf:14,  qf:8,   r16:4,   r32:0 },
       ITF:       { winner:25,   final:16,   sf:8,   qf:4,   r16:2,   r32:0 },
     },
     calendarTemplate: JSON.parse(JSON.stringify(DEFAULT_CALENDAR)),
@@ -347,10 +372,10 @@ const NAME_POOLS = {
 };
 function tournamentNameOf(level, idx) {
   if (level === 'FINALS') return 'ATP年终总决赛';
-  const pool = NAME_POOLS[level];
+  const pool = NAME_POOLS[level] || NAME_POOLS.CHALLENGER; // 挑战赛四档共用名称池
   const base = pool[idx % pool.length];
   const dup = Math.floor(idx / pool.length);
-  if (level === 'CHALLENGER') return base + '挑战赛' + (dup ? ' ' + (dup + 1) : '');
+  if (level.startsWith('CH')) return base + '挑战赛' + level.slice(2) + (dup ? ' ' + (dup + 1) : ''); // 挑战赛125/100/75/50
   if (level === 'ITF') return base + ' ITF未来赛' + (dup ? ' ' + (dup + 1) : '');
   return base + (dup ? ' ' + (dup + 1) : '');
 }
@@ -392,10 +417,10 @@ function genSetScore(M, k, f, c) {
 /* ########################################################################
  * 第 5 章 · 赛季与日历
  * ######################################################################## */
-// 周内开赛日均匀错开（步长 2 轮转，与 7 互质）：资格赛使赛事周期变为 8~10 天，
-// 若沿用挤堆排布，高并发会抽干 1000 人池；均匀分布后并发占用稳定在 ~40%。
+// 周内开赛日按优先级顺延错开（高级别优先占用周前半的开赛日）：资格赛使赛事周期变为 8~10 天，
+// 挤堆排布会抽干 1000 人池；级别高者先开赛，低级别赛事（与其资格带重叠少）殿后，并发占用稳定且高级别优先获签。
 function computeOffsets(sorted) {
-  return sorted.map((_, i) => (i * 2) % 7);
+  return sorted.map((_, i) => i % 7);
 }
 
 // 5.2：由模板生成本赛季 20 周赛历（生成后固定，第 8 章）；ITF 未来赛每周自动注入
@@ -413,13 +438,13 @@ function buildCalendar(template) {
   const itfN = Math.max(0, cfgSafeItf());
   for (let w = 1; w <= TOTAL_WEEKS; w++) {
     const list = (template[w - 1] || []).slice();
-    if (w === FINALS_WEEK) { // 年终总决赛独占一周（5.4）；总决赛为邀请赛，不设资格赛
+    if (w === FINALS_WEEK) { // 年终总决赛本周开赛（5.4）；总决赛为邀请赛，不设资格赛
       cal.push({ id: `S${state.season.number}-FIN`, slotIndex: slot++, week: w, startDay: (w - 1) * 7 + 1,
         level: 'FINALS', name: uniqueName(tournamentNameOf('FINALS', 0)), duration: 5 });
     }
     // 本周全部赛事（常规 + ITF 注入，总决赛周与收官周同样注入 ITF，低排名选手全程有赛可打）
-    const all = (w === FINALS_WEEK ? [] : list.filter(lv => LEVEL_META[lv] && lv !== 'FINALS')
-      .map(lv => ({ level: lv, rounds: LEVEL_META[lv].rounds })));
+    const all = list.filter(lv => LEVEL_META[lv] && lv !== 'FINALS')
+      .map(lv => ({ level: lv, rounds: LEVEL_META[lv].rounds }));
     for (let i = 0; i < itfN; i++) all.push({ level: 'ITF', rounds: LEVEL_META.ITF.rounds });
     if (all.length) {
       all.sort((a, b) => b.rounds - a.rounds || LEVEL_META[b.level].rank - LEVEL_META[a.level].rank);
@@ -439,17 +464,22 @@ function buildCalendar(template) {
   }
   return cal;
 }
-function cfgSafeItf() { return (state.config && state.config.current.itfPerWeek) || 3; }
+function cfgSafeItf() { return (state.config && state.config.current.itfPerWeek) || 6; }
 
-// 11.3：不设轮空 —— 正赛与资格赛签表均严格取满。正赛 = 7/8 直接入围 + 1/8 资格赛晋级（5.3）
+// 11.3：不设轮空 —— 正赛与资格赛签表均严格取满。
+// 正赛 = 直接入围（签表 − qualAdvance）+ 资格赛晋级（qualAdvance：大满贯 16，其余赛事统一 8，5.1）
+// 资格赛签表 = qualAdvance × 8，3 轮单败取满（qdraw/2 → qdraw/4 → qdraw/8 = qualAdvance 名晋级）
 function createTournament(event) {
   const meta = LEVEL_META[event.level];
   const mk = n => Array.from({ length: n }, () => ({ a: null, b: null, sets: [], winner: null, played: false }));
+  const qadv = meta.qualAdvance || meta.drawSize / 8; // 资格赛晋级正赛名额（5.1）
+  const qdraw = qadv * 8;                              // 资格赛签表大小
   const t = { id: event.id, slotIndex: event.slotIndex, level: event.level, name: event.name,
     status: 'inProgress', startDay: event.startDay, drawSize: meta.drawSize,
-    directCount: meta.drawSize * 7 / 8,           // 直接入围名额（含玩家保留位）
+    qualAdvance: qadv,
+    directCount: meta.drawSize - qadv,       // 直接入围名额（含玩家保留位）
     userStatus: 'notEntered', alive: [],
-    qual: { rounds: [{ matches: mk(meta.drawSize / 2) }, { matches: mk(meta.drawSize / 4) }, { matches: mk(meta.drawSize / 8) }], winners: [] },
+    qual: { rounds: [{ matches: mk(qdraw / 2) }, { matches: mk(qdraw / 4) }, { matches: mk(qdraw / 8) }], winners: [] },
     rounds: ROUND_NAMES[meta.drawSize].map((name, ri) => ({ name, matches: mk(meta.drawSize >> (ri + 1)) })) };
   return t;
 }
@@ -474,6 +504,7 @@ function countWeekEvents(id, week) {
       if (t.groups.A.includes(id) || t.groups.B.includes(id)) n++;
       continue;
     }
+    if (!t.rounds.length) continue; // 已取消的赛事（空壳）
     let found = false;
     for (const m of t.rounds[0].matches) if (m.a === id || m.b === id) { found = true; break; }
     if (!found) for (const qr of t.qual.rounds) { for (const m of qr.matches) if (m.a === id || m.b === id) { found = true; break; } if (found) break; }
@@ -483,7 +514,7 @@ function countWeekEvents(id, week) {
 }
 
 // 5.3 双卡门槛：正赛池 = 排名 ≤ 正赛门槛；资格赛池 = 正赛门槛 < 排名 ≤ 资格赛门槛（null = 不限）
-// ITF 特例：正赛池同为 ≤300，但直接区 28 席按"弱者优先"（排名数值最高者）取人；资格赛不限且弱者优先。
+// ITF 特例：正赛池同为 ≤500，但直接区 28 席按"弱者优先"（排名数值最高者）取人；资格赛不限且弱者优先。
 function entryEligibility(level, ranking) {
   const c = (cfg().entryCutoff || {})[level];
   if (!c) return null;
@@ -514,14 +545,21 @@ function spillPoolFor(t) {
     && (c.qual == null || p.ranking <= c.qual) && (c.excludeTop == null || p.ranking > c.excludeTop));
 }
 const byDirOrder = (level) => level === 'ITF' ? (a, b) => b.ranking - a.ranking : (a, b) => a.ranking - b.ranking;
-function lotterySelect(pool, t, needed, extraFilter, spillPool) {
+// 5.3 按周锁定意愿：每名 AI 每赛季周只掷一次报名意愿 —— (id, 周数) 哈希定值，不消耗 RNG 序列，跨会话/存档重载后可复现
+function weeklyWilling(p, week) {
+  const h = ((p.id * 2654435761) ^ (week * 1013904223)) >>> 0;
+  return h / 4294967296 < p.attendance;
+}
+// 5.3 取人：rankFirst = 高排名保护（直接区用）——候选纯按排名取满，无视意愿；意愿抽签只在资格赛与填不满放宽时启用
+// 允许签表留洞（11.3）：候选不足时直接返回缺额名单，不做放宽周限额/忽略限制强制填坑——人不够就空着，由轮空晋级消化
+function lotterySelect(pool, t, needed, extraFilter, spillPool, rankFirst) {
   const c = cfg();
   const week = weekOf(state.season.day);
   let base = pool.filter(p => countWeekEvents(p.id, week) < c.maxEventsPerWeek);
   if (extraFilter) base = base.filter(extraFilter);
-  const willing = p => t.level === 'GS' || nextRand() < p.attendance; // 大满贯必报
-  let cand = base.filter(willing);
-  if (cand.length < needed) cand = base; // 放宽意愿重扫
+  const willing = p => t.level === 'GS' || weeklyWilling(p, week); // 大满贯必报
+  let cand = rankFirst ? base : base.filter(willing);
+  if (cand.length < needed) cand = base; // 填不满 → 放宽意愿重扫（全员按排名）
   const byRank = byDirOrder(t.level);
   cand.sort(byRank);
   let ents = cand.slice(0, needed);
@@ -530,49 +568,38 @@ function lotterySelect(pool, t, needed, extraFilter, spillPool) {
     const spill = spillPool.filter(p => !have.has(p.id) && (!extraFilter || extraFilter(p))).sort(byRank);
     ents = ents.concat(spill.slice(0, needed - ents.length));
   }
-  if (ents.length < needed) { // 放宽周限额兜底（正常不应触发）
-    console.warn('[报名放宽]', t.id, '缺', needed - ents.length, '人，放宽周限额填坑');
-    const have = new Set(ents.map(p => p.id));
-    const restPool = pool.filter(p => !have.has(p.id) && (!extraFilter || extraFilter(p))).sort(byRank);
-    ents = ents.concat(restPool.slice(0, needed - ents.length));
-  }
-  if (ents.length < needed) { // 最终兜底：签表必须完整（11.3），从全池未入选者中忽略 busy/限额强制填坑（不含玩家）
-    console.warn('[报名兜底]', t.id, '仍缺', needed - ents.length, '人，忽略全部限制填坑');
-    const have = new Set(ents.map(p => p.id));
-    const all = state.players.filter(p => !have.has(p.id) && p.id !== USER_ID && (!extraFilter || extraFilter(p))).sort(byRank);
-    ents = ents.concat(all.slice(0, needed - ents.length));
-  }
-  return ents;
+  return ents; // 允许缺额：签表留洞
 }
-// 正赛直接入围（7/8 名额）：正赛池（排名≤正赛门槛）按排名竞争，ITF 弱者优先；玩家经 forceUserInto 按位次顶替入签
+// 正赛直接入围名额：正赛池（排名≤正赛门槛）按排名竞争（高排名保护：rankFirst 纯排名取满），ITF 弱者优先；玩家经 forceUserInto 按位次顶替入签
 function selectDirect(t) {
   const ents = lotterySelect(mainPool(t), t, t.directCount, null,
-    t.level === 'ITF' ? null : spillPoolFor(t));
+    t.level === 'ITF' ? null : spillPoolFor(t), true);
   ents.sort(byDirOrder(t.level));
   return ents;
 }
-// 资格赛签表（= 正赛大小）：资格赛池（含正赛落选者）取满；ITF 不限且弱者优先
+// 资格赛签表（= qualAdvance × 8）：资格赛池（含正赛落选者）取满；按周锁定意愿抽签，ITF 不限且弱者优先
 function selectQualifiers(t, directIds) {
-  return lotterySelect(qualPool(t, directIds), t, t.drawSize);
+  return lotterySelect(qualPool(t, directIds), t, t.qualAdvance * 8);
 }
 
 // 11.2：种子落位（直接入围者中前 seeds 名为种子；资格赛晋级者不设种子，资格赛结束后随机落入资格赛签位）
 function fillDraw(t, directEntrants, qualEntrants) {
   const n = t.drawSize, meta = LEVEL_META[t.level];
-  const qn = n / 8; // 资格赛晋级名额：正赛首轮末段各场比赛的奇数号签位
+  const qn = t.qualAdvance; // 资格赛晋级名额：正赛首轮末段各场比赛的奇数号签位
   const isQual = s => (s % 2 === 1) && s >= n - 2 * qn + 1;
   const dpos = []; // 直接入围签位（种子落位画布）
   for (let s = 0; s < n; s++) if (!isQual(s)) dpos.push(s);
-  const dn = dpos.length; // = n * 7/8
+  const dn = dpos.length; // = n − qualAdvance
   const slots = new Array(n).fill(null);
   const seedCount = Math.min(meta.seeds, directEntrants.length);
   const seeds = directEntrants.slice(0, seedCount);
   const rest = shuffle(directEntrants.slice(seedCount));
-  slots[dpos[0]] = seeds[0].id;          // 1 号种子上半区顶端
-  slots[dpos[dn - 1]] = seeds[1].id;     // 2 号种子下半区底端
+  if (seeds.length >= 1) slots[dpos[0]] = seeds[0].id;      // 1 号种子上半区顶端
+  if (seeds.length >= 2) slots[dpos[dn - 1]] = seeds[1].id; // 2 号种子下半区底端
   const q = Math.round(dn / 4), h = Math.round(dn / 2);
   const freeD = () => dpos.find(p => slots[p] === null);
-  const place = (idx, pos) => { // 取整 + 防碰撞：7/8 入围区尺寸可能不整除区带基数
+  const place = (idx, pos) => { // 取整 + 防碰撞：直接入围区尺寸可能不整除区带基数
+    if (!seeds[idx]) return false;
     pos = Math.round(pos);
     if (pos >= 0 && pos < dn && slots[dpos[pos]] === null) { slots[dpos[pos]] = seeds[idx].id; return true; }
     const f = freeD(); if (f != null) { slots[f] = seeds[idx].id; return true; }
@@ -594,11 +621,11 @@ function fillDraw(t, directEntrants, qualEntrants) {
     for (let i = 0; i < avail; i++) place(start - 1 + i, pos[i]);
   }
   let ri = 0;
-  for (const p of dpos) if (slots[p] === null) slots[p] = rest[ri++].id; // 直接入围填满全部直接签位
-  t.rounds[0].matches.forEach((m, i) => { m.a = slots[2 * i]; m.b = slots[2 * i + 1]; });
+  for (const p of dpos) if (slots[p] === null && ri < rest.length) slots[p] = rest[ri++].id; // 取满即止，不足留洞（11.3）
+  t.rounds[0].matches.forEach((m, i) => { m.a = slots[2 * i] ?? null; m.b = slots[2 * i + 1] ?? null; });
   const qs = qualEntrants.map(p => p.id);
-  t.qual.rounds[0].matches.forEach((m, i) => { m.a = qs[2 * i]; m.b = qs[2 * i + 1]; }); // 资格赛首轮
-  t.alive = dpos.map(p => slots[p]).concat(qs); // 正赛入围者与资格赛选手均视为"进行中"（占用周名额、排除新签）
+  t.qual.rounds[0].matches.forEach((m, i) => { m.a = qs[2 * i] ?? null; m.b = qs[2 * i + 1] ?? null; }); // 资格赛首轮（允许留洞）
+  t.alive = dpos.map(p => slots[p]).concat(qs).filter(id => id != null); // 正赛入围者与资格赛选手均视为"进行中"（洞不占名额）
   if (slots.includes(USER_ID) || qs.includes(USER_ID)) t.userStatus = 'alive';
 }
 
@@ -763,13 +790,43 @@ function onMatchDecided(t, ri, i, m, winner) {
   }
 }
 
+// 11.3 留洞轮空：单场仅一名选手时，该选手自动晋级（不设积分；决赛轮空直接夺冠，双空决赛记无冠军收官）
+function walkoverAdvance(t, ri, i, m) {
+  const id = m.a != null ? m.a : m.b;
+  m.winner = id; m.played = true; m.walkover = true; m.sets = [];
+  const roundName = t.rounds[ri].name;
+  if (roundName === 'F') {
+    t.status = 'completed'; t.champion = id;
+    if (id === USER_ID) t.userStatus = 'champion';
+    return;
+  }
+  const nxt = t.rounds[ri + 1].matches[i >> 1];
+  if ((i & 1) === 0) nxt.a = id; else nxt.b = id;
+}
+// 资格赛轮空晋级（决胜轮轮空 = 晋级正赛）
+function walkoverQual(t, qd, i, m) {
+  const id = m.a != null ? m.a : m.b;
+  m.winner = id; m.played = true; m.walkover = true; m.sets = [];
+  if (qd + 1 < 3) {
+    const nxt = t.qual.rounds[qd + 1].matches[i >> 1];
+    if ((i & 1) === 0) nxt.a = id; else nxt.b = id;
+  } else t.qual.winners.push(id);
+}
+
 // 模拟某赛事某一轮的所有 AI 比赛（玩家比赛已由交互阶段登记，跳过）
 function simulateTournamentRound(t, ri) {
   if (ri < 0 || ri >= t.rounds.length) return;
   const c = cfg();
   const round = t.rounds[ri];
+  if (ri === t.rounds.length - 1 && round.matches.every(m => m.a == null && m.b == null)) {
+    t.status = 'completed'; t.champion = null; return; // 双空决赛：无冠军收官（极端留洞）
+  }
   round.matches.forEach((m, i) => {
-    if (m.played || m.a == null || m.b == null) return;
+    if (m.played) return;
+    if (m.a == null || m.b == null) { // 留洞：单人就轮空晋级，双空则洞延续到下一轮
+      if (m.a != null || m.b != null) walkoverAdvance(t, ri, i, m);
+      return;
+    }
     if (m.a === USER_ID || m.b === USER_ID) return; // 玩家对局已在结算①登记
     const res = simulateMatchAI(m.a, m.b, c);
     m.sets = res.sets; m.winner = res.winner; m.played = true;
@@ -921,9 +978,9 @@ function settleDay(playerResult) {
 
 // 决定玩家某日比赛（或 null = 训练休息日，5.3.4 兜底分支）
 // 5.3：玩家的双卡入围判定 —— 与 AI 同一套规则（正赛/资格赛双门槛 + 直接区按排名竞争），无"必入签"特权
-// 排名 ≤ 正赛门槛 → 正赛资格：在正赛合格池（AI 受周限额约束；玩家豁免、不适用出勤率）中按排名竞争 7/8 直接区
+// 排名 ≤ 正赛门槛 → 正赛资格：在正赛合格池（AI 受周限额约束；玩家豁免、不适用出勤率）中按排名竞争直接入围区
 // （位次 < 直接名额 → 直通正赛；否则落入资格赛）；正赛门槛 < 排名 ≤ 资格赛门槛 → 资格赛；否则不可报。
-// ITF 特例：正赛池同为前 300，但直接区按"弱者优先"（排名数值最高）取人；资格赛无限制。
+// ITF 特例：正赛池同为前 500，但直接区按"弱者优先"（排名数值最高）取人；资格赛无限制。
 function playerEntryFor(e) {
   const c = cfg().entryCutoff[e.level];
   if (!c) return null;
@@ -936,7 +993,7 @@ function playerEntryFor(e) {
     .concat([state.user]); // 玩家池仍按限额过滤（席位竞争口径）
   pool.sort(byDirOrder(e.level));
   const pos = pool.findIndex(p => p.id === USER_ID);
-  const directCount = LEVEL_META[e.level].drawSize * 7 / 8;
+  const directCount = LEVEL_META[e.level].drawSize - (LEVEL_META[e.level].qualAdvance || 0); // 直接入围名额（5.1）
   return pos >= 0 && pos < directCount ? 'direct' : 'qual';
 }
 
@@ -955,6 +1012,10 @@ function buildUserMatchInner(aliveT, target) {
       const m = aliveT.qual.rounds[qd].matches.find(m => (m.a === USER_ID || m.b === USER_ID) && !m.played);
       if (!m) return null;
       opp = m.a === USER_ID ? m.b : m.a;
+      if (opp == null) { // 11.3 留洞：资格赛轮空晋级
+        userWalkoverResolve(aliveT, m, 'qual', qd, aliveT.qual.rounds[qd].matches.indexOf(m));
+        return null;
+      }
       return { tournamentId: aliveT.id, qualRound: qd, oppId: opp, oppM: null, target: null,
         sets: [], uw: 0, ow: 0, nextSet: 1 };
     }
@@ -963,6 +1024,10 @@ function buildUserMatchInner(aliveT, target) {
     const m = aliveT.rounds[ri] && aliveT.rounds[ri].matches.find(m => m.a === USER_ID || m.b === USER_ID);
     if (!m) return null;
     opp = m.a === USER_ID ? m.b : m.a;
+    if (opp == null) { // 11.3 留洞：正赛轮空晋级（决赛轮空 = 不战而冠）
+      userWalkoverResolve(aliveT, m, 'main', ri, aliveT.rounds[ri].matches.indexOf(m));
+      return null;
+    }
     return { tournamentId: aliveT.id, finals: false, roundIdx: ri, oppId: opp,
       sets: [], uw: 0, ow: 0, nextSet: 1 };
   }
@@ -972,6 +1037,7 @@ function buildUserMatchInner(aliveT, target) {
       const m = t.qual.rounds[0].matches.find(m => (m.a === USER_ID || m.b === USER_ID) && !m.played);
       if (!m) return null;
       const opp = m.a === USER_ID ? m.b : m.a;
+      if (opp == null) { userWalkoverResolve(t, m, 'qual', 0, t.qual.rounds[0].matches.indexOf(m)); return null; }
       return { tournamentId: t.id, qualRound: 0, oppId: opp,
         sets: [], uw: 0, ow: 0, nextSet: 1 };
     }
@@ -980,10 +1046,27 @@ function buildUserMatchInner(aliveT, target) {
     const m = t.rounds[ri] && t.rounds[ri].matches.find(m => m.a === USER_ID || m.b === USER_ID);
     if (!m) return null;
     const opp = m.a === USER_ID ? m.b : m.a;
+    if (opp == null) { userWalkoverResolve(t, m, 'main', ri, t.rounds[ri].matches.indexOf(m)); return null; }
     return { tournamentId: t.id, finals: false, roundIdx: ri, oppId: opp,
       sets: [], uw: 0, ow: 0, nextSet: 1 };
   }
   return null;
+}
+// 11.3 留洞：玩家轮空——对手签位为空，自动晋级下一轮（不设积分；决赛轮空直接夺冠），当日展示轮空卡
+function userWalkoverResolve(t, m, kind, r, i) {
+  if (kind === 'qual') {
+    walkoverQual(t, r, i, m);
+    state.walkoverNotice = { tournamentId: t.id,
+      text: t.name + ' · ' + ROUND_LABEL['Q' + (r + 1)] + '：对手签位空缺，轮空晋级' };
+  } else {
+    walkoverAdvance(t, r, i, m);
+    const champ = t.userStatus === 'champion';
+    state.walkoverNotice = { tournamentId: t.id,
+      text: champ ? (t.name + ' · 决赛对手签位空缺，不战而胜夺得本站冠军！')
+        : (t.name + ' · ' + ROUND_LABEL[t.rounds[r].name] + '：对手签位空缺，轮空晋级'),
+      champion: champ || undefined };
+  }
+  save();
 }
 // 比赛创建即按 3.3 公式生成对手整场的 M 与 3 局成绩并持久化（4.1 盲打：先录入、确认后才揭晓展示）
 function rollTodayScores(m) {
@@ -1025,6 +1108,14 @@ function generateDayEvents(rel, userEntry) {
     t._directEnts = selectDirect(t, false);
     const directIds = new Set(t._directEnts.map(p => p.id));
     t._qualEnts = selectQualifiers(t, directIds);
+    // 11.3 留洞：报名过少（不足半个正赛签表）的赛事取消 —— 不产生全员轮空的"幽灵冠军"；玩家已报名的赛事不取消
+    if (t._directEnts.length + t._qualEnts.length < Math.max(8, t.drawSize / 2)
+        && !(userEntry && userEntry.event === e)) {
+      state.tournaments.push({ id: t.id, slotIndex: t.slotIndex, level: t.level, name: t.name,
+        status: 'cancelled', startDay: t.startDay, userStatus: 'notEntered', cancelled: true,
+        alive: [], qual: { rounds: [], winners: [] }, rounds: [] });
+      continue;
+    }
     if (userEntry && userEntry.event === e) {
       t.userEntry = userEntry.form;
       if (userEntry.form === 'direct') fillDraw(t, forceUserInto(t, 'direct'), t._qualEnts);
@@ -1038,13 +1129,17 @@ function generateDayEvents(rel, userEntry) {
   }
 }
 
-// 资格赛某轮模拟：AI 全量逐局模拟，胜场按级别发资格赛积分（6.1），晋级者进入下一轮
+// 资格赛某轮模拟：AI 全量逐局模拟，胜场按级别发资格赛积分（6.1），晋级者进入下一轮；留洞单场轮空晋级（不设积分）
 function simulateQualRound(t, qd) {
   const c = cfg();
   const round = t.qual.rounds[qd];
   round.matches.forEach((m, i) => {
-    if (m.played || m.a == null || m.b == null) return;
-    if (m.a === USER_ID || m.b === USER_ID) return; // 玩家豁免资格赛，不会出现在资格赛签表
+    if (m.played) return;
+    if (m.a == null || m.b == null) { // 留洞：单人轮空晋级，双空延续
+      if (m.a != null || m.b != null) walkoverQual(t, qd, i, m);
+      return;
+    }
+    if (m.a === USER_ID || m.b === USER_ID) return; // 玩家对局已由交互阶段登记（applyPlayerResult）
     const res = simulateMatchAI(m.a, m.b, c);
     m.sets = res.sets; m.winner = res.winner; m.played = true;
     awardPoints(playerById(res.winner), t, (c.qualPoints && c.qualPoints[t.level]) || 0, 'qual');
@@ -1056,9 +1151,9 @@ function simulateQualRound(t, qd) {
   });
 }
 
-// 资格赛收官：晋级者（= 正赛名额 1/8）随机散开落入正赛首轮末段各场（每场一个，对位直接入围者）
+// 资格赛收官：晋级者（= qualAdvance 名）随机散开落入正赛首轮末段各场（每场一个，对位直接入围者）
 function assignQualifiers(t) {
-  const qn = t.drawSize / 8;
+  const qn = t.qualAdvance;
   if (t.qual.winners.length < qn || t.qualAssigned) return;
   const ids = shuffle(t.qual.winners.slice());
   const n = t.drawSize;
@@ -1091,6 +1186,8 @@ function simulateDayRounds(rel) {
 function fastForwardQualDays(t, days) {
   const report = { tournamentId: t.id, fromDay: state.season.day, winners: [],
     upsets: [], highScores: [], champions: [], _comp: new Set(), _seen: new Set() };
+  for (const x of state.tournaments) // 冠军速报只收快进窗口内新收官的赛事（赛季此前已收官的不重复列）
+    if (!x.finals && x.status === 'completed' && x.champion != null) report._comp.add(x.id);
   for (let k = 0; k < days; k++) {
     const rel = state.season.day;
     simulateDayRounds(rel); // ② 全量模拟当日（本站资格赛各轮 + concurrent 赛事）
@@ -1241,6 +1338,8 @@ function commitEntry(eventId) {
 // 远期预约快进：批量模拟今日 → 开赛日之间的世界赛程（逐日结算，与快进机制同构），生成跳过简报
 function fastForwardTo(targetDay) {
   const report = { fromDay: state.season.day, days: targetDay - state.season.day, champions: [], _comp: new Set() };
+  for (const x of state.tournaments) // 跳过简报只收快进窗口内新收官的赛事（赛季此前已收官的不重复列）
+    if (!x.finals && x.status === 'completed' && x.champion != null) report._comp.add(x.id);
   while (state.season.day < targetDay) {
     const rel = state.season.day;
     simulateDayRounds(rel); // ②
@@ -1298,13 +1397,14 @@ function simulatePreseason() {
  * 赛季滚动：收官后立即开启新赛季（5.1 / 6.3 / 11.7）
  * ######################################################################## */
 // 赛季收官总结快照（滚动前捕获：历史/签表/积分都还在）
+// 冠军口径（9.4）：matchReach === 'W' —— 真正赢下定点决赛（正赛 round='F' 且胜，或总决赛 FINALF 且胜）；历史原始记录不存在 round='W'
 function captureSeasonSummary() {
   const sn = state.season.number;
   const hist = state.history.filter(h => h.season === sn);
   const wins = hist.filter(h => h.result === 'W').length;
-  const titles = hist.filter(h => h.result === 'W' && (h.round === 'W' || h.round === 'FINALF'))
+  const titles = hist.filter(h => matchReach(h) === 'W')
     .map(h => { const t = state.tournaments.find(x => x.id === h.tournamentId);
-      return { name: t ? t.name : h.tournamentId, level: h.level }; });
+      return { name: t ? t.name : (h.tournamentName || h.tournamentId), level: h.level }; });
   const byLevel = {};
   for (const r of state.user.points) {
     const t = state.tournaments.find(x => x.id === r.tournamentId);
@@ -1369,6 +1469,39 @@ function load() {
     for (const k of Object.keys(dft)) {
       if (state.config.current[k] === undefined) state.config.current[k] = deepCopy(dft[k]);
       if (state.config.queued[k] === undefined) state.config.queued[k] = deepCopy(dft[k]);
+    }
+    // 挑战赛四档化迁移（旧档 CHALLENGER → CH125）：积分/资格赛积分沿用旧档自定义值并补齐新三档默认值；
+    // 入围门槛按新规则重置四档（旧档单一挑战赛门槛无法拆分到四档）；赛历模板中的 CHALLENGER 同步更名
+    const migrateChTiers = (obj, dftObj, keepOld) => {
+      if (!obj || typeof obj !== 'object') return deepCopy(dftObj);
+      const out = Object.assign({}, obj);
+      if (keepOld && out.CHALLENGER !== undefined && out.CH125 === undefined) out.CH125 = out.CHALLENGER;
+      delete out.CHALLENGER;
+      for (const k of ['CH125', 'CH100', 'CH75', 'CH50'])
+        if (out[k] === undefined && dftObj[k] !== undefined) out[k] = deepCopy(dftObj[k]);
+      return out;
+    };
+    for (const cc of [state.config.current, state.config.queued]) {
+      cc.entryCutoff = migrateChTiers(cc.entryCutoff, dft.entryCutoff, false);
+      cc.pointsTable = migrateChTiers(cc.pointsTable, dft.pointsTable, true);
+      cc.qualPoints = migrateChTiers(cc.qualPoints, dft.qualPoints, true);
+      cc.calendarTemplate = (cc.calendarTemplate || []).map(w => (w || []).map(l => l === 'CHALLENGER' ? 'CH125' : l));
+    }
+    // 历史/签表/进行中赛事的级别字段同步更名（旧档晋级名额 = 签表 1/8 = 4）
+    for (const h of state.history) if (h.level === 'CHALLENGER') h.level = 'CH125';
+    for (const list of [state.tournaments, (state.archive || [])]) {
+      if (!Array.isArray(list)) continue;
+      for (const t of list) if (t.level === 'CHALLENGER') {
+        t.level = 'CH125';
+        if (t.qualAdvance == null) t.qualAdvance = t.drawSize / 8;
+      }
+    }
+    // 冠军统计口径修复：旧版总结漏记正赛决赛胜利（历史 round='F' 且胜），按 9.4 口径（matchReach === 'W'）回算冠军列表
+    if (state.seasonSummary) {
+      const sn = state.seasonSummary.season;
+      state.seasonSummary.titles = state.history
+        .filter(h => h.season === sn && matchReach(h) === 'W')
+        .map(h => ({ name: h.tournamentName || h.tournamentId, level: h.level }));
     }
     // 旧档 AI 无 attendance 字段：按 id 确定性回填 U[attendanceRange]
     const [amin, amax] = state.config.current.attendanceRange || [0.4, 1.0];
@@ -1536,6 +1669,13 @@ function render() {
   else if (state.ui.tab === 'profile') main.innerHTML = renderProfile();
   else main.innerHTML = renderSettings();
   if (state.ui.tab === 'profile') drawPointsChart();
+  if (UI.calGoWeek) { // 打开赛历（切换 tab 触发的一次性定位）：滚动到当前周；历史跳转（calHighlight）优先
+    UI.calGoWeek = false;
+    if (state && state.ui.tab === 'calendar' && !state.ui.calView && !state.ui.calHighlight) {
+      const cur = document.querySelector('.cal-week.cal-cur');
+      if (cur) cur.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
+  }
   if (state && state.ui.calHighlight && state.ui.tab === 'calendar') { // 9.4 历史跳转：滚动定位并高亮该场
     const el = document.querySelector(`[data-ref="${state.ui.calHighlight}"]`);
     if (el) { el.classList.add('m-hl'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
@@ -1606,8 +1746,14 @@ function renderSettlement() {
   const t = tournamentOf(s.tid);
   const delta = s.prevRank - s.rank;
   const deltaTxt = delta > 0 ? `<span class="up">↑${delta}</span>` : delta < 0 ? `<span class="down">↓${-delta}</span>` : '<span class="flat">—</span>';
+  // 双方逐局比分对比（末局揭晓确认后才进入本卡，sets 由 finishMatch 注入）
+  const setsTbl = s.sets && s.sets.length
+    ? `<table class="mb"><tr><th>局</th><th>你</th><th>${esc(s.oppName || '对手')}</th><th>本局</th></tr>
+      ${s.sets.map((x, i) => `<tr><td>第 ${i + 1} 局</td><td>${x.user}</td><td>${x.ai}</td><td>${x.user > x.ai ? '胜' : '负'}</td></tr>`).join('')}</table>`
+    : '';
   return `<div class="card">
     <div class="set-result ${s.won ? 'set-win' : 'set-lose'}">${s.won ? '比赛获胜！' : '不敌对手，再接再厉'}</div>
+    ${setsTbl}
     <div class="stat-grid mb">
       <div class="stat"><div class="v">+${s.pts}</div><div class="k">本站入账积分</div></div>
       <div class="stat"><div class="v">#${s.rank}</div><div class="k">当前排名（${deltaTxt}）</div></div>
@@ -1623,9 +1769,21 @@ function renderToday() {
   if (state.skipReport) return renderSkipReport();
   if (state.qualReport) return renderQualReport();
   if (UI.step === 'settled' && UI.lastSettlement) return renderSettlement();
+  if (state.walkoverNotice) return renderWalkover(); // 11.3 留洞：本轮轮空
   if (state.today) return renderMatch();
   if (state.userEntry && state.userEntry.startDay > state.season.day) return renderWaitingEntry();
   return renderEntrySelect();
+}
+// 11.3 留洞：玩家轮空卡（对手签位空缺，自动晋级；点继续后当日结算推进）
+function renderWalkover() {
+  const w = state.walkoverNotice;
+  return `<div class="card">
+    <div class="set-result" style="background:#E8F0FE;color:#0B4A8B">${w.champion ? '不战而胜，夺得冠军！' : '本轮轮空'}</div>
+    <p class="center mb">${esc(w.text)}</p>
+    <p class="muted center mb">签表留洞（11.3）：候选人数不足时签位空缺，单场仅一人自动晋级，不设积分。</p>
+    <p class="center mb">${tomorrowText()}</p>
+    <button class="btn btn-block" onclick="PT.a('walkoverDone')">继续</button>
+  </div>`;
 }
 // 远期预约快进后的跳过简报（精简版：天数 + 期间收官赛事冠军列表）
 function renderSkipReport() {
@@ -1713,7 +1871,7 @@ function renderRetest() {
   const cal = state.season.calendar;
   const lvCount = {};
   cal.forEach(e => lvCount[e.level] = (lvCount[e.level] || 0) + 1);
-  const calLine = ['GS', 'MASTERS', 'ATP500', 'ATP250', 'CHALLENGER', 'ITF'].filter(l => lvCount[l])
+  const calLine = ['GS', 'MASTERS', 'ATP500', 'ATP250', 'CH125', 'CH100', 'CH75', 'CH50', 'ITF'].filter(l => lvCount[l])
     .map(l => LEVEL_META[l].label + '×' + lvCount[l]).join(' + ') + ' + 总决赛';
   const titles = s && s.titles.length
     ? s.titles.map(t => `${lvBadge(t.level)} ${esc(t.name)}`).join('　')
@@ -1771,13 +1929,23 @@ function renderMatch() {
         <button class="btn btn-block mt" onclick="PT.a('submitReps')">确认录入并揭晓</button>
       </div>`;
     }
+  } else { // 末局（2:0 时的第 2 局 / 1:1 后的决胜局）同样先揭晓单局对比，确认后再结算整场（finishMatch）
+    const reveal = UI.step === 'result' && UI.lastSet
+      ? `<div class="set-result ${UI.lastSet.won ? 'set-win' : 'set-lose'}" style="animation:pop .4s ease">
+          第 ${t.nextSet - 1} 局${UI.lastSet.won ? '拿下！' : '失利'}　你 ${UI.lastSet.user} : ${UI.lastSet.ai} ${esc(opp.name)}
+          <div class="muted small" style="font-weight:400">对手本局做了 ${UI.lastSet.ai} 个（确认瞬间揭晓）</div></div>`
+      : '';
+    flow = `<div class="card">${reveal}
+        <div class="match-score"><span>大比分 你 ${t.uw}</span><span>${t.ow} ${esc(opp.name)}</span></div>
+        <button class="btn btn-block" onclick="PT.a('finishMatch')">查看比赛结果</button>
+      </div>`;
   }
   return `<div class="card">
       <h3>${lvBadge(tour.level)} ${esc(tour.name)} <span class="tag">${rLabel}</span>
         ${t.qualRound != null ? '<span class="badge" style="background:#6D4C41">资格赛</span>' : ''}</h3>
       <div class="opp-card">
         <div>
-          <div class="opp-name">${esc(opp.name)}</div>
+          <div class="opp-name" style="cursor:pointer;text-decoration:underline" title="查看最近战报" onclick="PT.a('playerRecent',${opp.id})">${esc(opp.name)}</div>
           <div class="muted small">${esc(opp.country[0])}（${esc(opp.country[1])}）· 世界排名 #${opp.ranking} · 积分 ${totalPoints(opp)}</div>
           <div class="mt"><span class="tag tag-strong">${styleOf(opp.f)}</span>
             <span class="tag">衰减特质 ${styleOf(opp.f) === '耐造型' ? '低' : styleOf(opp.f) === '爆发型' ? '高' : '中'}</span></div>
@@ -1833,13 +2001,15 @@ function renderCalendar() {
   for (let w = 1; w <= TOTAL_WEEKS; w++) {
     const evs = state.season.calendar.filter(e => e.week === w);
     const dayMin = (w - 1) * 7 + 1, dayMax = Math.min(w * 7, seasonLength());
-    weeks.push(`<div class="cal-week">
-      <div class="cal-week-t">第 ${w} 周 · 赛日 ${dayMin}~${dayMax}</div>
+    const isCur = w === weekOf(state.season.day); // 当前周：标题高亮，打开赛历时滚动定位（render 的一次性旗标）
+    weeks.push(`<div class="cal-week${isCur ? ' cal-cur' : ''}" data-week="${w}">
+      <div class="cal-week-t">第 ${w} 周 · 赛日 ${dayMin}~${dayMax}${isCur ? ' · 本周' : ''}</div>
       ${evs.map(e => {
         const t = findTournament(e.id);
         let cls = 'chip lv-' + e.level, status = '';
         if (t) {
           if (t.status === 'completed') { cls += ' ch-done'; status = '已结束'; }
+          else if (t.status === 'cancelled') { cls += ' ch-done'; status = '已取消'; }
           else status = '进行中';
         } else status = '未开赛';
         const badge = playerChipBadge(e, t);
@@ -1859,8 +2029,9 @@ function renderDrawPanel(tid) {
   if (!t) return `<div class="card"><h3>${esc(ev.name)}</h3><p class="muted">签表尚未生成（赛事开赛当天建签）。</p></div>`;
   const head = `<h3>${lvBadge(t.level)} ${esc(t.name)}
       <span class="tag">赛日 ${t.startDay}~${t.startDay + (t.finals ? 4 : LEVEL_META[t.level].rounds + 2)}（含 3 天资格赛）</span>
-      <span class="tag">${t.status === 'completed' ? '已结束' : '进行中'}</span>
+      <span class="tag">${t.status === 'completed' ? '已结束' : t.status === 'cancelled' ? '已取消（报名人数不足）' : '进行中'}</span>
       ${t.userStatus !== 'notEntered' ? `<span class="tag tag-strong">我：${userStatusText(t)}</span>` : ''}</h3>`;
+  if (t.cancelled) return `<div class="card">${head}<p class="muted">本站因报名人数不足取消（11.3 留洞规则）。</p></div>`;
   if (t.finals) return `<div class="card">${head}${renderFinalsDraw(t)}</div>`;
   const qualHtml = t.qual.rounds.map((qr, qd) => `<div class="draw-r"><h4>${ROUND_LABEL['Q' + (qd + 1)]}</h4>
     ${qr.matches.map((m, mi) => renderMatchBoxQ(t, qd, mi, m)).join('')}</div>`).join('');
@@ -1877,6 +2048,7 @@ function renderMatchBoxQ(t, qd, mi, m) {
   const me = m && (m.a === USER_ID || m.b === USER_ID);
   let inner;
   if (!m.played) inner = `<span>${playerName(m.a)}<br>vs ${playerName(m.b)}</span>`;
+  else if (m.walkover) inner = `<b class="won">${playerName(m.winner)}</b>（轮空晋级）`;
   else if (m.setsTrimmed) inner = `<b class="${m.winner === m.a ? 'won' : ''}">${playerName(m.a)}</b><br>
       <b class="${m.winner === m.b ? 'won' : ''}">${playerName(m.b)}</b>
       <div class="muted small mt">逐局比分已归档</div>`;
@@ -1892,6 +2064,7 @@ function renderMatchBox(t, ri, mi, m) {
   const me = m.a === USER_ID || m.b === USER_ID;
   let inner;
   if (!m.played) inner = `<span class="${m.a == null || m.b == null ? 'm-pending' : ''}">${playerName(m.a)}<br>vs ${playerName(m.b)}</span>`;
+  else if (m.walkover) inner = `<b class="won">${playerName(m.winner)}</b>（轮空晋级）`;
   else if (m.setsTrimmed) inner = `<b class="${m.winner === m.a ? 'won' : ''}">${playerName(m.a)}</b><br>
       <b class="${m.winner === m.b ? 'won' : ''}">${playerName(m.b)}</b>
       <div class="muted small mt">逐局比分已归档</div>`;
@@ -1948,7 +2121,10 @@ function showMatchModal(ref) {
     else if (kind === 'q') { m = t.qual.rounds[+a].matches[+b]; title = ROUND_LABEL['Q' + (+a + 1)]; }
   }
   if (!m) return;
-  const body = (m.setsTrimmed)
+  const body = (m.walkover)
+    ? `<p class="mb">${playerName(m.a)} <b>vs</b> ${playerName(m.b)}</p>
+       <p class="muted">对手签位空缺（11.3 留洞），<b class="up">${playerName(m.winner)}</b> 轮空晋级，未设积分。</p>`
+    : (m.setsTrimmed)
     ? `<p class="mb">${playerName(m.a)} <b>vs</b> ${playerName(m.b)}　胜者：<b class="up">${playerName(m.winner)}</b></p>
        <p class="muted">逐局比分已归档（存档体积兜底，仅保留胜负与晋级结构）。</p>`
     : !m.played
@@ -1960,7 +2136,52 @@ function showMatchModal(ref) {
   openModal(`<h3>${esc(t.name)} · ${title}</h3>${body}
     <div class="btn-row"><button class="btn btn-sm" onclick="PT.a('closeModal')">关闭</button></div>`);
 }
-
+// 选手最近 N 场战报：扫描本赛季签表 + 往届归档（9.4），按（赛季, 赛日）倒序取前 N 场；局分以该选手视角定向
+function recentMatchesOf(pid, n) {
+  n = n || 5;
+  const out = [];
+  const scan = (t, seasonNo) => {
+    const push = (m, day, roundTxt) => {
+      if (!m || !m.played || m.walkover || (m.a !== pid && m.b !== pid)) return; // 轮空不入战报
+      const mine = m.a === pid;
+      out.push({ key: seasonNo * 10000 + day, tname: t.name, level: t.level, round: roundTxt,
+        oppId: mine ? m.b : m.a, won: m.winner === pid,
+        sets: (m.setsTrimmed || !m.sets || !m.sets.length) ? null
+          : m.sets.map(s => mine ? [s[0], s[1]] : [s[1], s[0]]) });
+    };
+    if (t.finals) {
+      t.rr.forEach((day, d) => day.forEach(m => push(m, t.startDay + d, ROUND_LABEL['RR' + (d + 1)])));
+      t.sf.forEach(m => push(m, t.startDay + 3, ROUND_LABEL.FINALSF));
+      push(t.f, t.startDay + 4, ROUND_LABEL.FINALF);
+    } else {
+      t.qual.rounds.forEach((qr, qd) => qr.matches.forEach(m => push(m, t.startDay + qd, ROUND_LABEL['Q' + (qd + 1)])));
+      t.rounds.forEach((r, ri) => r.matches.forEach(m => push(m, t.startDay + 3 + ri, mainRoundLabel(t.level, r.name))));
+    }
+  };
+  for (const t of state.tournaments) scan(t, state.season.number);
+  for (const t of (state.archive || [])) scan(t, t.archivedSeason);
+  out.sort((a, b) => b.key - a.key);
+  return out.slice(0, n);
+}
+// 选手最近 5 场战报弹窗：赛事 / 轮次 / 对手 / 胜负 / 局分（对战对手卡与排名榜姓名入口共用）
+// 布局：每场一行卡片（赛事+轮次+胜负 / 对手+局分），内容自适应换行，窄屏也可一次性完整展示、无需横向拖动
+function showPlayerRecent(pid) {
+  const p = playerById(pid);
+  if (!p) return;
+  const rows = recentMatchesOf(pid, 5);
+  const body = rows.length
+    ? `<div class="muted small mb">局分以 ${esc(p.name)} 视角记录</div>
+      <div class="mlist">${rows.map(r => `<div class="mrow">
+        <div class="mrow-h">${lvBadge(r.level)}<span class="mrow-ev">${esc(r.tname)}</span>
+          <span class="mrow-rd">${r.round}</span>
+          <span class="mrow-wl">${r.won ? '<b class="up">胜</b>' : '<b class="down">负</b>'}</span></div>
+        <div class="mrow-b"><span class="mrow-opp">对手 ${esc(playerById(r.oppId).name)}</span>
+          <span class="mrow-sc">${r.sets ? r.sets.map(s => `${s[0]}:${s[1]}`).join('　') : '局分已归档'}</span></div>
+      </div>`).join('')}</div>`
+    : '<p class="muted">该选手暂无已赛场次。</p>';
+  openModal(`<h3>${esc(p.name)} · 最近 5 场战报</h3>${body}
+    <div class="btn-row"><button class="btn btn-sm" onclick="PT.a('closeModal')">关闭</button></div>`);
+}
 /* ---------- 9.3 排名榜 ---------- */
 const RANK_PAGE = 50;
 function renderRankings() {
@@ -1982,12 +2203,14 @@ function renderRankings() {
     const d = p.prevRanking - p.ranking;
     const arrow = p.ranking === 1001 && p.prevRanking === 1001 ? '<span class="flat">—</span>'
       : d > 0 ? `<span class="up">↑${d}</span>` : d < 0 ? `<span class="down">↓${-d}</span>` : '<span class="flat">—</span>';
-    return `<td>${p.ranking}</td><td>${arrow}</td><td>${p.id === USER_ID ? '你' : esc(p.name)}</td>
+    return `<td>${p.ranking}</td><td>${arrow}</td>
+      <td style="cursor:pointer;text-decoration:underline" title="查看最近战报" onclick="PT.a('playerRecent',${p.id})">${p.id === USER_ID ? '你' : esc(p.name)}</td>
       <td>${p.id === USER_ID ? '—' : esc(p.country[1])}</td><td><b>${totalPoints(p)}</b></td>
       <td class="muted">${p.lastPoints || '—'}</td>`;
   };
   return `<div class="card">
     <h3>世界排名 · 1001 人同池</h3>
+    <div class="btn-row mb"><button class="btn btn-ghost btn-sm" onclick="PT.a('seasonChamps')">本赛季冠军榜（${state.tournaments.filter(t => t.status === 'completed' && t.champion != null).length} 站收官）</button></div>
     <div class="stat-grid mb">
       <div class="stat"><div class="v">#${u.ranking}</div><div class="k">我的排名</div></div>
       <div class="stat"><div class="v">${gap(ahead1)}</div><div class="k">距前一名</div></div>
@@ -2075,7 +2298,7 @@ function renderProfile() {
   const u = state.user;
   const h = state.history;
   const wins = h.filter(x => x.result === 'W').length, losses = h.length - wins;
-  const titles = h.filter(x => x.round === 'W' || x.round === 'FINALF' && x.result === 'W').length;
+  const titles = h.filter(x => matchReach(x) === 'W').length; // 9.4 口径：真正赢下决赛（正赛 F 胜 / 总决赛 FINALF 胜）
   // 各级别最佳成绩（9.4 口径：仅真正夺冠才显示冠军）
   const best = computeBestByLevel(h);
   const bestRows = Object.keys(LEVEL_META).filter(l => best[l]).map(l =>
@@ -2195,7 +2418,7 @@ function renderSettings() {
     <h3>积分表（JSON，含 ITF）</h3>
     <textarea id="cfg-points" class="input" rows="8">${esc(JSON.stringify(q.pointsTable))}</textarea>
     <div class="row mt"><button class="btn btn-sm" onclick="PT.a('cfgJson','points')">校验并保存</button></div>
-    <p class="muted small mt">键：winner/final/sf/qf/r16/r32（r64/r128 仅大签表使用）；级别：GS / MASTERS / ATP500 / ATP250 / CHALLENGER / ITF</p>
+    <p class="muted small mt">键：winner/final/sf/qf/r16/r32（r64/r128 仅大签表使用）；级别：GS / MASTERS / ATP500 / ATP250 / CH125 / CH100 / CH75 / CH50 / ITF</p>
   </div>
   <div class="card">
     <h3>资格赛每轮胜场积分（JSON）</h3>
@@ -2207,7 +2430,7 @@ function renderSettings() {
     <h3>赛历模板（JSON，20 周；ITF 由 itfPerWeek 每周自动注入）</h3>
     <textarea id="cfg-cal" class="input" rows="8">${esc(JSON.stringify(q.calendarTemplate))}</textarea>
     <div class="row mt"><button class="btn btn-sm" onclick="PT.a('cfgJson','calendar')">校验并保存</button></div>
-    <p class="muted small mt">每周为赛事级别数组：GS / MASTERS / ATP500 / ATP250 / CHALLENGER；第 18 周固定为总决赛。</p>
+    <p class="muted small mt">每周为赛事级别数组：GS / MASTERS / ATP500 / ATP250 / CH125 / CH100 / CH75 / CH50；第 19 周固定为总决赛。</p>
   </div>
   <div class="card">
     <h3>纠错通道（6.5）</h3>
@@ -2232,7 +2455,7 @@ function renderSettings() {
  * ######################################################################## */
 function handleAction(name, arg, arg2, arg3) {
   switch (name) {
-    case 'tab': state.ui.tab = arg; save(); break;
+    case 'tab': UI.calGoWeek = arg === 'calendar' && state.ui.tab !== arg; state.ui.tab = arg; save(); break; // 打开赛历：一次性定位到当前周
     case 'create': {
       const v = parseInt(document.getElementById('maxreps-input').value, 10);
       if (!Number.isInteger(v) || v < 1 || v > 100) { UI.onboardErr = '请输入 1~100 的整数'; break; }
@@ -2244,6 +2467,7 @@ function handleAction(name, arg, arg2, arg3) {
       break;
     }
     case 'startSet': UI.step = 'idle'; break; // 对手 3 局成绩已在比赛创建时生成（4.1 盲打）
+    case 'finishMatch': finishMatch(); break; // 末局揭晓确认 → 结算整场（settleDay 内部存档）
     case 'submitReps': {
       const v = parseInt(document.getElementById('reps-input').value, 10);
       if (!Number.isInteger(v) || v < 1 || v > 200) { toast('请输入 1~200 的整数（11.9 上限 200）'); break; }
@@ -2277,6 +2501,7 @@ function handleAction(name, arg, arg2, arg3) {
     }
     case 'closeSkip': state.skipReport = null; save(); break;
     case 'doneSettlement': UI.step = 'idle'; UI.lastSettlement = null; break;
+    case 'walkoverDone': state.walkoverNotice = null; settleDay(null); break; // 11.3 留洞：轮空当日记为无比赛结算，赛季时钟前进一日
     case 'retest': {
       const raw = document.getElementById('retest-input').value.trim();
       if (raw !== '') {
@@ -2292,6 +2517,20 @@ function handleAction(name, arg, arg2, arg3) {
     case 'rankQuery': state.ui.rankQuery = arg; state.ui.rankPage = 0; UI.refocus = true; break;
     case 'pageRank': state.ui.rankPage = arg; break;
     case 'jumpMe': state.ui.rankQuery = ''; state.ui.rankPage = Math.floor((state.user.ranking - 1) / RANK_PAGE); break;
+    case 'seasonChamps': { // 排行榜入口：本赛季已收官赛事冠军列表
+      const endDayOf = t => t.finals ? t.startDay + 4 : t.startDay + 2 + t.rounds.length; // 正赛 = 3 天资格赛 + 轮数；总决赛 5 天
+      const done = state.tournaments.filter(t => t.status === 'completed' && t.champion != null)
+        .sort((a, b) => endDayOf(a) - endDayOf(b) || LEVEL_META[b.level].rank - LEVEL_META[a.level].rank);
+      const rows = done.map(t => {
+        const me = t.champion === USER_ID;
+        return `<div class="muted small">· ${lvBadge(t.level)} ${esc(t.name)}（第 ${endDayOf(t)} 赛日收官）：冠军 <b class="${me ? 'up' : ''}">${esc(playerById(t.champion).name)}</b></div>`;
+      }).join('') || '<div class="muted small">· 本赛季尚无赛事收官</div>';
+      openModal(`<h3>第 ${state.season.number} 赛季 · 赛事冠军榜</h3>
+        <p class="muted small mb">本赛季已收官 ${done.length} 站，按收官先后排列：</p>
+        <div class="mb">${rows}</div>
+        <div class="btn-row"><button class="btn btn-sm" onclick="PT.a('closeModal')">关闭</button></div>`);
+      break;
+    }
     case 'selT': state.ui.calView = arg; save(); break; // 进入独立对阵界面（9.2）
     case 'calBack': // 返回（赛历或我的数据，视进入来源）
       state.ui.calView = null; state.ui.calHighlight = null;
@@ -2327,6 +2566,7 @@ function handleAction(name, arg, arg2, arg3) {
       break;
     }
     case 'showMatch': showMatchModal(arg); break;
+    case 'playerRecent': showPlayerRecent(+arg); break; // 选手最近 5 场战报弹窗（对战对手卡 / 排名榜姓名）
     case 'closeModal': closeModal(); break;
     case 'export': exportSave(); break;
     case 'importClick': document.getElementById('import-file').click(); break;
@@ -2408,10 +2648,10 @@ function handleAction(name, arg, arg2, arg3) {
       const ta = document.getElementById(arg === 'points' ? 'cfg-points' : arg === 'qual' ? 'cfg-qual' : 'cfg-cal');
       let o; try { o = JSON.parse(ta.value); } catch (e) { toast('JSON 解析失败：' + e.message); break; }
       if (arg === 'points') {
-        const levels = ['GS', 'MASTERS', 'ATP500', 'ATP250', 'CHALLENGER', 'ITF'];
+        const levels = ['GS', 'MASTERS', 'ATP500', 'ATP250', 'CH125', 'CH100', 'CH75', 'CH50', 'ITF'];
         const rows = ['winner', 'final', 'sf', 'qf', 'r16', 'r32'];
         const ok = levels.every(l => o[l] && rows.every(r => typeof o[l][r] === 'number'));
-        if (!ok) { toast('积分表结构不符（需要 6 个级别含 ITF × winner/final/sf/qf/r16/r32 数值）'); break; }
+        if (!ok) { toast('积分表结构不符（需要 9 个级别含 ITF × winner/final/sf/qf/r16/r32 数值）'); break; }
         state.config.queued.pointsTable = o;
       } else if (arg === 'qual') {
         const ok = o && Object.keys(o).every(l => l in LEVEL_META && typeof o[l] === 'number' && l !== 'FINALS');
@@ -2420,7 +2660,7 @@ function handleAction(name, arg, arg2, arg3) {
       } else {
         const ok = Array.isArray(o) && o.length === TOTAL_WEEKS && o.every(w => Array.isArray(w)
           && w.every(l => typeof l === 'string' && (l in LEVEL_META)));
-        if (!ok) { toast('赛历模板须为 ' + TOTAL_WEEKS + ' 个周数组，级别取值：GS/MASTERS/ATP500/ATP250/CHALLENGER/FINALS'); break; }
+        if (!ok) { toast('赛历模板须为 ' + TOTAL_WEEKS + ' 个周数组，级别取值：GS/MASTERS/ATP500/ATP250/CH125/CH100/CH75/CH50/FINALS'); break; }
         state.config.queued.calendarTemplate = o;
       }
       save(); toast('已保存，将于下赛季生效（11.7）');
@@ -2442,17 +2682,23 @@ function doSubmit(n) {
   if (n > ai) t.uw++; else t.ow++;
   UI.lastSet = { user: n, ai: ai, won: n > ai };
   t.nextSet++;
-  if (t.uw !== 2 && t.ow !== 2) { UI.step = 'result'; save(); return; }
-  // 比赛结束（2:0 或 2:1，2:0 不打第三局 —— 由局循环自然终止）
-  const tour = tournamentOf(t.tournamentId);
+  // 统一先进入「揭晓」态展示本局比分对比（4.1）：未赛完 → 下一局；末局（含决胜局）→ 点击后由 finishMatch 结算整场
+  UI.step = 'result'; save();
+}
+// 末局揭晓确认后结算整场：登记结果 → 当日结算 → 生成结算卡（含双方逐局比分）
+function finishMatch() {
+  const t = state.today;
+  if (!t) return;
+  const tour = tournamentOf(t.tournamentId); // 须在 settleDay 前解析：跨赛季滚动后旧签表已归档
   const res = { tournamentId: t.tournamentId, finals: t.finals, day: t.day, roundIdx: t.roundIdx,
     qualRound: t.qualRound != null ? t.qualRound : undefined, oppId: t.oppId, won: t.uw === 2, sets: t.sets };
   const prevRank = state.user.ranking;
-  state.today = null; UI.step = 'idle';
-  settleDay(res); // 11.1 完整结算
+  state.today = null; UI.step = 'idle'; UI.lastSet = null;
+  settleDay(res); // 11.1 完整结算（内部 save）
   const h = state.history[state.history.length - 1];
   UI.lastSettlement = { rest: false, won: res.won, pts: h ? h.pointsEarned : 0,
-    prevRank, rank: state.user.ranking, tid: res.tournamentId,
+    prevRank, rank: state.user.ranking, tid: res.tournamentId, sets: res.sets,
+    oppName: playerById(res.oppId).name,
     roundTxt: settlementRound(tour, res), statusTxt: settlementStatus(tour, res) };
   UI.step = 'settled';
 }
@@ -2495,7 +2741,7 @@ function init() {
   document.getElementById('import-file').addEventListener('change', onImportFile);
   window.PT = { a: handleAction };
   // 测试/调试钩子（不影响游戏逻辑）
-  window.__PT = { state: () => state, save, load, createProfile, settleDay, newSeason, advanceToDay,
+  window.__PT = { state: () => state, save, load, createProfile, settleDay, finishMatch, newSeason, advanceToDay,
     expirePoints, recomputeRankings, genSetScore, genMatchM, simulateMatchAI, totalPoints,
     tournamentOf, playerById, LEVEL_META, defaultConfig, absDayOf, seasonLength, groupStandings,
     busySet, simulatePreseason, generateDayEvents, simulateDayRounds,
