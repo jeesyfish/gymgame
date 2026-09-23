@@ -2010,18 +2010,21 @@ function renderRankings() {
 // 最佳成绩口径（9.4）：冠军仅在真正赢得正赛决赛时计入；资格赛/早期轮的胜利≠冠军。
 // 单场比赛映射"至少到达档"：胜 → 下一轮（赢决赛=冠军）；负 → 出局轮；资格赛胜 = 正赛首轮。
 const BEST_ORDER = { Q1:0, Q2:1, Q3:2, R128:3, R64:4, R32:5, R16:6, QF:7, RR:7.5, SF:8, F:9, W:10 };
+// 单场映射"至少到达档"（9.4 最佳成绩同口径）：胜 → 下一轮（赢决赛=冠军）；负 → 出局轮；资格赛胜 = 正赛首轮
+function matchReach(x) {
+  const arr = ROUND_NAMES[LEVEL_META[x.level].drawSize];
+  if (x.round[0] === 'Q') return x.result === 'W' ? arr[0] : x.round;
+  if (x.round === 'FINALSF') return x.result === 'W' ? 'F' : 'SF';
+  if (x.round === 'FINALF') return x.result === 'W' ? 'W' : 'F';
+  if (x.round.startsWith('RR')) return 'RR';
+  return x.result === 'W' ? (x.round === 'F' ? 'W' : arr[arr.indexOf(x.round) + 1]) : x.round;
+}
 function computeBestByLevel(hist) {
   const byT = {};
   for (const x of hist) {
     const g = byT[x.tournamentId] || (byT[x.tournamentId] = { level: x.level,
       name: x.tournamentName || ((findTournament(x.tournamentId) || {}).name) || x.tournamentId });
-    const arr = ROUND_NAMES[LEVEL_META[x.level].drawSize];
-    let reach = null;
-    if (x.round[0] === 'Q') reach = x.result === 'W' ? arr[0] : x.round;
-    else if (x.round === 'FINALSF') reach = x.result === 'W' ? 'F' : 'SF';
-    else if (x.round === 'FINALF') reach = x.result === 'W' ? 'W' : 'F';
-    else if (x.round.startsWith('RR')) reach = 'RR';
-    else reach = x.result === 'W' ? (x.round === 'F' ? 'W' : arr[arr.indexOf(x.round) + 1]) : x.round;
+    const reach = matchReach(x);
     if (g.reach == null || BEST_ORDER[reach] > BEST_ORDER[g.reach]) g.reach = reach;
   }
   const best = {};
@@ -2035,40 +2038,36 @@ function bestReachText(level, reach) {
   if (reach === 'W') return '<b class="up">冠军</b>';
   if (reach === 'F') return '亚军';
   if (reach === 'RR') return '小组赛';
+  if (reach === 'SF' && level === 'FINALS') return '半决赛'; // 总决赛四强档（8 签无正赛轮次表）
   if (reach[0] === 'Q') return ROUND_LABEL['Q' + reach.slice(1)];
   return mainRoundLabel(level, reach);
 }
-// 历史比赛轮次标签（资格赛/总决赛/正赛按签表标注）
-function histRoundLabel(x) {
-  if (x.round[0] === 'Q') return ROUND_LABEL['Q' + x.round.slice(1)];
-  if (x.round.startsWith('RR')) return ROUND_LABEL[x.round];
-  if (x.round === 'FINALSF') return '半决赛';
-  if (x.round === 'FINALF') return '决赛';
-  return mainRoundLabel(x.level, x.round);
-}
-// 历史比赛列表（9.4：倒序、最近 30 条 + 展开全部；点击跳转该场签表并高亮）
+// 历史比赛列表（9.4：按赛事聚合"每项赛事一行"=赛事名 + 达到轮次（最佳成绩同口径与文案）；
+// 倒序最近 30 条 + 展开全部；点击跳转该站签表并高亮该站最远那场，签表不可用走降级比分卡）
 function renderHistoryBlock() {
-  const h = state.history.slice().reverse();
+  const h = state.history;
   if (!h.length) return '';
-  const shown = UI.histAll ? h : h.slice(0, 30);
-  const rows = shown.map((x) => {
-    const idx = state.history.indexOf(x);
-    const tName = x.tournamentName || ((findTournament(x.tournamentId) || {}).name) || '（已归档赛事）';
-    const opp = playerById(x.oppId);
-    const setsTxt = x.sets.map(s2 => `${s2[0]}:${s2[1]}`).join('　');
-    return `<tr style="cursor:pointer" onclick="PT.a('histOpen',${idx})">
-      <td class="muted small">第${x.season}季<br>第${x.day}日</td>
-      <td>${lvBadge(x.level)} <span class="small">${esc(tName)}</span><br>
-        <span class="muted small">${histRoundLabel(x)}</span></td>
-      <td>${esc(opp.name)}<br><span class="muted small">#${x.oppRank != null ? x.oppRank : opp.ranking}</span></td>
-      <td><b class="${x.result === 'W' ? 'up' : 'down'}">${x.result === 'W' ? '胜' : '负'}</b></td>
-      <td class="small">${setsTxt}</td>
-      <td class="small">${x.pointsEarned ? '+' + x.pointsEarned : '—'}</td></tr>`;
+  const groups = [], byT = {};
+  h.forEach((x, i) => {
+    const reach = matchReach(x);
+    let g = byT[x.tournamentId];
+    if (!g) { g = byT[x.tournamentId] = { level: x.level,
+      name: x.tournamentName || ((findTournament(x.tournamentId) || {}).name) || '（已归档赛事）',
+      season: x.season, reach: null, idx: -1 }; groups.push(g); }
+    if (g.reach == null || BEST_ORDER[reach] >= BEST_ORDER[g.reach]) { g.reach = reach; g.idx = i; } // 同档取最近一场（高亮那场）
+  });
+  groups.reverse(); // 倒序：最近在上
+  const shown = UI.histAll ? groups : groups.slice(0, 30);
+  const rows = shown.map(g => {
+    const sPre = g.season !== state.season.number ? `<span class="muted small">S${g.season} </span>` : '';
+    return `<tr style="cursor:pointer" onclick="PT.a('histOpen',${g.idx})">
+      <td>${lvBadge(g.level)} ${sPre}<span class="small">${esc(g.name)}</span></td>
+      <td>${bestReachText(g.level, g.reach)}</td></tr>`;
   }).join('');
   return `<div class="card">
-    <h3>历史比赛（${state.history.length} 场）</h3>
-    <table><tr><th>赛日</th><th>赛事 / 轮次</th><th>对手</th><th>胜负</th><th>逐局比分（你:对手）</th><th>积分</th></tr>${rows}</table>
-    ${state.history.length > 30 ? `<button class="btn btn-ghost btn-block mt" onclick="PT.a('histToggle')">${UI.histAll ? '收起' : '展开全部（' + state.history.length + ' 场）'}</button>` : ''}
+    <h3>历史比赛（${groups.length} 站）</h3>
+    <table><tr><th>赛事</th><th>达到轮次</th></tr>${rows}</table>
+    ${groups.length > 30 ? `<button class="btn btn-ghost btn-block mt" onclick="PT.a('histToggle')">${UI.histAll ? '收起' : '展开全部（' + groups.length + ' 站）'}</button>` : ''}
   </div>`;
 }
 function renderProfile() {
