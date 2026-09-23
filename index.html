@@ -212,17 +212,17 @@ function defaultConfig() {
     finalsPoints: { rr:200, sf:400, f:500 }, // 总决赛积分（第 5.4 章）
     // 5.1 双卡门槛：正赛/资格赛入围排名上限（ITF 特殊：正赛前 300、资格赛无限制）
     entryCutoff: {
-      GS:        { main: 100, qual: 300 },
+      GS:        { main: 150, qual: 300 },
       MASTERS:   { main: 50,  qual: 300 },
       ATP500:    { main: 50,  qual: 300 },
       ATP250:    { main: 50,  qual: 300 },
       CHALLENGER:{ main: 100, qual: 600 },
-      ITF:       { main: 300, qual: null },
+      ITF:       { main: 500, qual: null, excludeTop: 200 }, // 前 200 名禁入 ITF
     },
     maxEventsPerWeek: 1,          // 每 AI 每赛季周（按开赛日周计）最多参赛站数，无级别豁免（5.3）；玩家豁免
     entryWindowDays: 7,           // 玩家报名窗口：今日开赛 + 未来 N 天内开赛的赛事可手动选择报名（5.3）
     attendanceRange: [0.4, 1.0],  // AI 出勤率 U[min,max]：非大满贯以该概率报名（3.1/5.3）
-    itfPerWeek: 3,                // 每周 ITF 未来赛站数（低排名选手积分来源，5.2）
+    itfPerWeek: 5,                // 每周 ITF 未来赛站数（低排名选手积分来源，5.2）
     qualPoints: { GS:8, MASTERS:4, ATP500:2, ATP250:2, CHALLENGER:1, ITF:1 }, // 资格赛每轮胜场积分（6.1）
     // ATP 2025 真实积分表 + ITF 积分表（第 6.1 章）
     pointsTable: {
@@ -445,6 +445,7 @@ function countWeekEvents(id, week) {
 function entryEligibility(level, ranking) {
   const c = (cfg().entryCutoff || {})[level];
   if (!c) return null;
+  if (c.excludeTop != null && ranking <= c.excludeTop) return null; // 禁入区（如 ITF 前 200 名）
   if (ranking <= c.main) return 'main';
   if (c.qual == null || ranking <= c.qual) return 'qual';
   return null;
@@ -454,20 +455,21 @@ function entryPool(t) { // 仅存活排除；门槛过滤在正/资格赛池各�
   return state.players.filter(p => !busy.has(p.id));
 }
 // 池子只做门槛/排除过滤，周限额与出勤抽签由 lotterySelect 统一处理（其放宽链依赖未过滤池）
-function mainPool(t) {
+function mainPool(t) { // 正赛池：≤ 正赛门槛且不在禁入区
   const c = cfg().entryCutoff[t.level];
-  return entryPool(t).filter(p => p.ranking <= c.main);
+  return entryPool(t).filter(p => p.ranking <= c.main && (c.excludeTop == null || p.ranking > c.excludeTop));
 }
-function qualPool(t, directIds) { // 资格赛池：资格赛门槛内、未入直接区者（含正赛落选者——竞争失败转资格赛）
+function qualPool(t, directIds) { // 资格赛池：资格赛门槛内、未入直接区者（含正赛落选者）；禁入区排除
   const c = cfg().entryCutoff[t.level];
-  return entryPool(t).filter(p => (c.qual == null || p.ranking <= c.qual) && !directIds.has(p.id));
+  return entryPool(t).filter(p => (c.qual == null || p.ranking <= c.qual)
+    && (c.excludeTop == null || p.ranking > c.excludeTop) && !directIds.has(p.id));
 }
-// 直接区溢出候选：正赛池不足时按排名递补资格赛合格者；同样受周限额约束（不双赛）
+// 直接区溢出候选：正赛池不足时按排名递补资格赛合格者；同样受周限额约束与禁入区（不双赛）
 function spillPoolFor(t) {
   const c = cfg().entryCutoff[t.level];
   const week = weekOf(state.season.day);
   return entryPool(t).filter(p => countWeekEvents(p.id, week) < cfg().maxEventsPerWeek
-    && (c.qual == null || p.ranking <= c.qual));
+    && (c.qual == null || p.ranking <= c.qual) && (c.excludeTop == null || p.ranking > c.excludeTop));
 }
 const byDirOrder = (level) => level === 'ITF' ? (a, b) => b.ranking - a.ranking : (a, b) => a.ranking - b.ranking;
 function lotterySelect(pool, t, needed, extraFilter, spillPool) {
@@ -887,7 +889,8 @@ function playerEntryFor(e) {
   if (elig === 'qual') return 'qual';
   const week = weekOf(state.season.day);
   const pool = entryPool({ level: e.level }).filter(p => countWeekEvents(p.id, week) < cfg().maxEventsPerWeek)
-    .filter(p => p.ranking <= c.main).concat([state.user]); // 玩家池仍按限额过滤（席位竞争口径）
+    .filter(p => p.ranking <= c.main && (c.excludeTop == null || p.ranking > c.excludeTop))
+    .concat([state.user]); // 玩家池仍按限额过滤（席位竞争口径）
   pool.sort(byDirOrder(e.level));
   const pos = pool.findIndex(p => p.id === USER_ID);
   const directCount = LEVEL_META[e.level].drawSize * 7 / 8;
@@ -1991,7 +1994,7 @@ function renderSettings() {
     <h3>正赛 / 资格赛入围门槛（JSON 双卡，5.1）</h3>
     <textarea id="cfg-cutoff" class="input" rows="8">${esc(JSON.stringify(q.entryCutoff))}</textarea>
     <div class="row mt"><button class="btn btn-sm" onclick="PT.a('cfgCut',document.getElementById('cfg-cutoff').value)">校验并保存</button></div>
-    <p class="muted small mt">每级别 { main: 正赛门槛, qual: 资格赛门槛 }，qual 为 null = 资格赛不限（ITF）；排名 ≤ main → 竞争正赛直接区，≤ qual → 资格赛</p>
+    <p class="muted small mt">每级别 { main, qual, excludeTop? }；qual 为 null = 资格赛不限；excludeTop = 禁入区上限（排名 ≤ 该值禁止该级别任何比赛，如 ITF 前 200）。缺省字段视为 null（旧存档兼容）</p>
   </div>
   <div class="card">
     <h3>积分表（JSON，含 ITF）</h3>
@@ -2148,8 +2151,9 @@ function handleAction(name, arg, arg2, arg3) {
     case 'cfgCut': { // 入围门槛（JSON 双卡）：{ 级别: { main, qual } }，qual 留空 = 不限
       let o; try { o = JSON.parse(arg2); } catch (e) { toast('JSON 解析失败：' + e.message); break; }
       const ok = o && Object.keys(o).every(l => l in LEVEL_META && o[l] && typeof o[l].main === 'number'
-        && (o[l].qual == null || typeof o[l].qual === 'number') && (o[l].qual == null || o[l].qual >= o[l].main));
-      if (!ok) { toast('门槛结构不符：{ 级别: { main: 正赛门槛, qual: 资格赛门槛|null } }'); break; }
+        && (o[l].qual == null || typeof o[l].qual === 'number') && (o[l].qual == null || o[l].qual >= o[l].main)
+        && (o[l].excludeTop == null || (typeof o[l].excludeTop === 'number' && o[l].excludeTop < o[l].main)));
+      if (!ok) { toast('门槛结构不符：{ 级别: { main, qual: null|number, excludeTop?: null|number(<main) } }'); break; }
       state.config.queued.entryCutoff = o;
       save(); toast('已保存，将于下赛季生效（11.7）');
       break;
