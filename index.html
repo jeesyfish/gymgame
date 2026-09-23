@@ -897,14 +897,14 @@ function playerEntryFor(e) {
   return pos >= 0 && pos < directCount ? 'direct' : 'qual';
 }
 
-function buildUserMatch(aliveT, target) {
+function buildUserMatchInner(aliveT, target) {
   if (aliveT) {
     let opp = null;
     if (aliveT.finals) {
       const m = userFinalsMatch(aliveT);
       if (m) opp = m.a === USER_ID ? m.b : m.a;
       if (opp == null) return null;
-      return { tournamentId: aliveT.id, finals: true, day: aliveT.day, oppId: opp, oppM: null, target: null,
+      return { tournamentId: aliveT.id, finals: true, day: aliveT.day, oppId: opp,
         sets: [], uw: 0, ow: 0, nextSet: 1 };
     }
     const qd = state.season.day - aliveT.startDay;
@@ -920,7 +920,7 @@ function buildUserMatch(aliveT, target) {
     const m = aliveT.rounds[ri] && aliveT.rounds[ri].matches.find(m => m.a === USER_ID || m.b === USER_ID);
     if (!m) return null;
     opp = m.a === USER_ID ? m.b : m.a;
-    return { tournamentId: aliveT.id, finals: false, roundIdx: ri, oppId: opp, oppM: null, target: null,
+    return { tournamentId: aliveT.id, finals: false, roundIdx: ri, oppId: opp,
       sets: [], uw: 0, ow: 0, nextSet: 1 };
   }
   if (target) {
@@ -929,7 +929,7 @@ function buildUserMatch(aliveT, target) {
       const m = t.qual.rounds[0].matches.find(m => (m.a === USER_ID || m.b === USER_ID) && !m.played);
       if (!m) return null;
       const opp = m.a === USER_ID ? m.b : m.a;
-      return { tournamentId: t.id, qualRound: 0, oppId: opp, oppM: null, target: null,
+      return { tournamentId: t.id, qualRound: 0, oppId: opp,
         sets: [], uw: 0, ow: 0, nextSet: 1 };
     }
     const ri = state.season.day - t.startDay - 3;
@@ -937,10 +937,22 @@ function buildUserMatch(aliveT, target) {
     const m = t.rounds[ri] && t.rounds[ri].matches.find(m => m.a === USER_ID || m.b === USER_ID);
     if (!m) return null;
     const opp = m.a === USER_ID ? m.b : m.a;
-    return { tournamentId: t.id, finals: false, roundIdx: ri, oppId: opp, oppM: null, target: null,
+    return { tournamentId: t.id, finals: false, roundIdx: ri, oppId: opp,
       sets: [], uw: 0, ow: 0, nextSet: 1 };
   }
   return null;
+}
+// 比赛创建即按 3.3 公式生成对手整场的 M 与 3 局成绩并持久化（4.1 盲打：先录入、确认后才揭晓展示）
+function rollTodayScores(m) {
+  if (m && m.oppM == null && m.oppId != null) {
+    const opp = playerById(m.oppId);
+    m.oppM = genMatchM(opp.S, cfg());
+    m.aiSets = [1, 2, 3].map(k => genSetScore(m.oppM, k, opp.f, cfg()));
+  }
+  return m;
+}
+function buildUserMatch(aliveT, target) {
+  return rollTodayScores(buildUserMatchInner(aliveT, target));
 }
 
 // 玩家入签（按位次判定形式）：直通 → 正赛直接区；否则 → 资格赛签表。顶替位次最低的中选者
@@ -1137,16 +1149,16 @@ function insertUserIntoDraw(t, form) {
     const w = displace(t.qual.rounds[0].matches);
     if (w) swap(w);
     const m = t.qual.rounds[0].matches.find(m => m.a === USER_ID || m.b === USER_ID);
-    return m ? { tournamentId: t.id, qualRound: 0, oppId: m.a === USER_ID ? m.b : m.a, oppM: null, target: null,
-      sets: [], uw: 0, ow: 0, nextSet: 1 } : null;
+    return m ? rollTodayScores({ tournamentId: t.id, qualRound: 0, oppId: m.a === USER_ID ? m.b : m.a,
+      sets: [], uw: 0, ow: 0, nextSet: 1 }) : null;
   }
   const w = displace(t.rounds[0].matches);
   if (w) swap(w);
   const ri = state.season.day - t.startDay - 3;
   if (ri < 0) return null; // 直通等待（realize 会接管快进）
   const m = t.rounds[ri] && t.rounds[ri].matches.find(m => m.a === USER_ID || m.b === USER_ID);
-  return m ? { tournamentId: t.id, finals: false, roundIdx: ri, oppId: m.a === USER_ID ? m.b : m.a, oppM: null, target: null,
-    sets: [], uw: 0, ow: 0, nextSet: 1 } : null;
+  return m ? rollTodayScores({ tournamentId: t.id, finals: false, roundIdx: ri, oppId: m.a === USER_ID ? m.b : m.a,
+    sets: [], uw: 0, ow: 0, nextSet: 1 }) : null;
 }
 
 // 兑现预约：赛事未建签则建签（必入签），已建签则顶替插入；直通 → 快进资格赛 3 天 + 战报
@@ -1318,6 +1330,13 @@ function load() {
       if (typeof p.attendance !== 'number')
         p.attendance = +((amin + ((p.id * 2654435761 >>> 0) % 1000) / 1000 * (amax - amin)).toFixed(3));
     }
+    // 4.1 盲打迁移：旧 pending（已亮靶待录入）作废亮靶——按既有 oppM/公式生成 3 局成绩持久化，该局改走先录入
+    if (state.today && state.today.aiSets == null) {
+      const t = state.today, opp = playerById(t.oppId);
+      if (t.oppM == null) t.oppM = genMatchM(opp.S, state.config.current);
+      t.aiSets = [1, 2, 3].map(k => genSetScore(t.oppM, k, opp.f, state.config.current));
+    }
+    if (state.today) delete state.today.target; // 已亮出的靶作废（分数不展示，成绩本身不变）
     // 旧版"直通等待期"存档迁移：自动快进剩余资格赛天数，落到正赛 R1（与新版行为一致）
     const pending = state.tournaments.find(t => t.status === 'inProgress' && t.userStatus === 'alive'
       && !t.finals && t.userEntry === 'direct' && state.season.day - t.startDay < 3);
@@ -1657,33 +1676,21 @@ function renderMatch() {
   const setsHtml = t.sets.map((s, i) =>
     `<div class="muted small">第 ${i + 1} 局：你 ${s.user} : ${s.ai} ${esc(opp.name)}　<b>${s.user > s.ai ? '胜' : '负'}</b></div>`).join('');
   if (!decided) {
-    if (UI.step === 'input') {
+    if (UI.step === 'result' && UI.lastSet) { // 揭晓：确认录入后展示对手分数与本局胜负（4.1 盲打）
       flow = `<div class="card">
-        <h3>录入成绩 · 第 ${t.nextSet} 局</h3>
-        <p class="center muted">对手本局成绩：<b class="up" style="font-size:20px">${t.target}</b> 个 —— 必须做 <b>${t.target + 1}</b> 个及以上才能赢下本局</p>
-        <input id="reps-input" class="input mt" type="number" inputmode="numeric" min="1" max="200" placeholder="我实际做了多少个？（上限 200）">
-        <button class="btn btn-block mt" onclick="PT.a('submitReps')">提交本局成绩</button>
-      </div>`;
-    } else if (t.target != null || UI.step === 'target') {
-      flow = `<div class="card">
-        <h3>第 ${t.nextSet} 局 · 对手已亮靶</h3>
-        <div class="score-big">${t.target}<span style="font-size:18px"> 个</span></div>
-        <p class="center muted">对手本局做了 <b>${t.target}</b> 个俯卧撑 —— 做 ${t.target + 1} 个及以上即可赢下本局</p>
-        <button class="btn btn-block mt" onclick="PT.a('toInput')">我做完一组了，录入成绩</button>
-      </div>`;
-    } else if (UI.step === 'result' && UI.lastSet) {
-      flow = `<div class="card">
-        <div class="set-result ${UI.lastSet.won ? 'set-win' : 'set-lose'}">
-          第 ${t.nextSet - 1} 局${UI.lastSet.won ? '拿下！' : '失利'}　${UI.lastSet.user} : ${UI.lastSet.ai}</div>
+        <div class="set-result ${UI.lastSet.won ? 'set-win' : 'set-lose'}" style="animation:pop .4s ease">
+          第 ${t.nextSet - 1} 局${UI.lastSet.won ? '拿下！' : '失利'}　你 ${UI.lastSet.user} : ${UI.lastSet.ai} ${esc(opp.name)}
+          <div class="muted small" style="font-weight:400">对手本局做了 ${UI.lastSet.ai} 个（确认瞬间揭晓）</div></div>
         <div class="match-score"><span>你 ${t.uw}</span><span>${t.ow} ${esc(opp.name)}</span></div>
         <p class="center muted mb">建议休息 2~3 分钟再打下一局（4.2）</p>
-        <button class="btn btn-block" onclick="PT.a('startSet')">休息好了，亮靶第 ${t.nextSet} 局</button>
+        <button class="btn btn-block" onclick="PT.a('startSet')">休息好了，开始第 ${t.nextSet} 局</button>
       </div>`;
-    } else {
+    } else { // 盲打录入：不显示对手任何分数，完成后确认揭晓
       flow = `<div class="card">
-        <h3>${t.sets.length === 0 ? '比赛开始' : '第 ' + t.nextSet + ' 局'}</h3>
-        <p class="center muted mb">点击亮靶，系统生成对手本局成绩</p>
-        <button class="btn btn-block" onclick="PT.a('startSet')">亮靶 · 开始第 ${t.nextSet} 局</button>
+        <h3>${t.sets.length === 0 ? '比赛开始' : '第 ' + t.nextSet + ' 局'} · 盲打录入</h3>
+        <p class="center muted">请完成一组俯卧撑，如实录入个数——对手本局成绩已封存，确认后即刻揭晓（严格大于才赢，4.1/4.3）</p>
+        <input id="reps-input" class="input mt" type="number" inputmode="numeric" min="1" max="200" placeholder="我实际做了多少个？（上限 200）">
+        <button class="btn btn-block mt" onclick="PT.a('submitReps')">确认录入并揭晓</button>
       </div>`;
     }
   }
@@ -2049,14 +2056,7 @@ function handleAction(name, arg, arg2, arg3) {
         : '档案已创建：1000 名 AI 就位，你从第 1001 名、0 积分出发');
       break;
     }
-    case 'startSet': {
-      const t = state.today, opp = playerById(t.oppId);
-      if (t.oppM == null) t.oppM = genMatchM(opp.S, cfg()); // 单场手感整场恒定（3.3）
-      t.target = genSetScore(t.oppM, t.nextSet, opp.f, cfg());
-      UI.step = 'target'; save();
-      break;
-    }
-    case 'toInput': UI.step = 'input'; break;
+    case 'startSet': UI.step = 'idle'; break; // 对手 3 局成绩已在比赛创建时生成（4.1 盲打）
     case 'submitReps': {
       const v = parseInt(document.getElementById('reps-input').value, 10);
       if (!Number.isInteger(v) || v < 1 || v > 200) { toast('请输入 1~200 的整数（11.9 上限 200）'); break; }
@@ -2217,12 +2217,12 @@ function handleAction(name, arg, arg2, arg3) {
 // 提交一局成绩（4.1：严格大于才赢，相等算输）
 function doSubmit(n) {
   const t = state.today;
-  const ai = t.target;
+  const ai = t.aiSets[t.nextSet - 1]; // 对手成绩早已生成持久化；确认瞬间才揭晓（4.1 盲打）
   t.sets.push({ user: n, ai: ai });
   if (n > ai) t.uw++; else t.ow++;
   UI.lastSet = { user: n, ai: ai, won: n > ai };
   t.nextSet++;
-  if (t.uw !== 2 && t.ow !== 2) { t.target = null; UI.step = 'result'; save(); return; }
+  if (t.uw !== 2 && t.ow !== 2) { UI.step = 'result'; save(); return; }
   // 比赛结束（2:0 或 2:1，2:0 不打第三局 —— 由局循环自然终止）
   const tour = tournamentOf(t.tournamentId);
   const res = { tournamentId: t.tournamentId, finals: t.finals, day: t.day, roundIdx: t.roundIdx,
