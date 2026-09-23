@@ -1331,7 +1331,12 @@ function load() {
 }
 // 首次启动：输入力竭次数 → 建档（第 7 章），生成 1000 名 AI + 赛历 + 第 1 天对阵
 function createProfile(maxReps) {
-  const dft = defaultConfig();
+  // 11.7：重新开始建新存档时，设置页当前值（含排队修改，prefs.config）立即生效；否则用默认配置
+  const prefs = loadPrefs();
+  const pc = prefs.config;
+  const dft = (pc && typeof pc === 'object' && pc.base && pc.pointsTable && pc.calendarTemplate)
+    ? deepCopy(pc) : defaultConfig();
+  dft.preseason = prefs.preseason !== false; // preseason 偏好键始终优先（行为不变）
   state = {
     version: 1,
     config: { current: deepCopy(dft), queued: deepCopy(dft) },
@@ -1383,6 +1388,8 @@ function importSave(jsonText) {
 }
 // 9.5：重新开始（清空存档；调用方负责二次确认）
 function resetAll() {
+  // 重新开始前把设置页当前值（含排队修改）存入偏好键，重建时立即生效（11.7）
+  if (state && state.config) savePrefs(Object.assign(loadPrefs(), { config: state.config.queued }));
   localStorage.removeItem(SAVE_KEY);
   state = null;
 }
