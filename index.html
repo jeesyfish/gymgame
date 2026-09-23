@@ -2264,7 +2264,7 @@ function bestReachText(level, reach) {
   if (reach[0] === 'Q') return ROUND_LABEL['Q' + reach.slice(1)];
   return mainRoundLabel(level, reach);
 }
-// 历史比赛列表（9.4：按赛事聚合"每项赛事一行"=赛事名 + 达到轮次（最佳成绩同口径与文案）；
+// 历史比赛列表（9.4：按赛事聚合"每项赛事一行"=赛事名 + 达到轮次（最佳成绩同口径与文案）+ 本站获得积分；
 // 倒序最近 30 条 + 展开全部；点击跳转该站签表并高亮该站最远那场，签表不可用走降级比分卡）
 function renderHistoryBlock() {
   const h = state.history;
@@ -2275,20 +2275,24 @@ function renderHistoryBlock() {
     let g = byT[x.tournamentId];
     if (!g) { g = byT[x.tournamentId] = { level: x.level,
       name: x.tournamentName || ((findTournament(x.tournamentId) || {}).name) || '（已归档赛事）',
-      season: x.season, reach: null, idx: -1 }; groups.push(g); }
+      season: x.season, reach: null, idx: -1, pts: 0 }; groups.push(g); }
+    g.pts += x.pointsEarned || 0; // 本站累计获得积分（含资格赛与正赛各轮）
     if (g.reach == null || BEST_ORDER[reach] >= BEST_ORDER[g.reach]) { g.reach = reach; g.idx = i; } // 同档取最近一场（高亮那场）
   });
   groups.reverse(); // 倒序：最近在上
   const shown = UI.histAll ? groups : groups.slice(0, 30);
+  const totalPts = groups.reduce((s, g) => s + g.pts, 0);
   const rows = shown.map(g => {
     const sPre = g.season !== state.season.number ? `<span class="muted small">S${g.season} </span>` : '';
+    const ptsCell = g.pts > 0 ? `<b class="up">+${g.pts}</b>` : '<span class="muted">0</span>';
     return `<tr style="cursor:pointer" onclick="PT.a('histOpen',${g.idx})">
       <td>${lvBadge(g.level)} ${sPre}<span class="small">${esc(g.name)}</span></td>
-      <td>${bestReachText(g.level, g.reach)}</td></tr>`;
+      <td>${bestReachText(g.level, g.reach)}</td>
+      <td>${ptsCell}</td></tr>`;
   }).join('');
   return `<div class="card">
-    <h3>历史比赛（${groups.length} 站）</h3>
-    <table><tr><th>赛事</th><th>达到轮次</th></tr>${rows}</table>
+    <h3>历史比赛（${groups.length} 站 · 累计 <span class="up">${totalPts}</span> 分）</h3>
+    <table><tr><th>赛事</th><th>达到轮次</th><th>本站积分</th></tr>${rows}</table>
     ${groups.length > 30 ? `<button class="btn btn-ghost btn-block mt" onclick="PT.a('histToggle')">${UI.histAll ? '收起' : '展开全部（' + groups.length + ' 站）'}</button>` : ''}
   </div>`;
 }
