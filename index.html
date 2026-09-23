@@ -1969,7 +1969,8 @@ function renderSettings() {
       ${queued ? '<span class="queued-badge">下赛季生效</span>' : ''}</div>`;
   };
   return `<div class="card">
-    <h3>全局配置（第 10 章）<span class="tag">修改入队，下赛季首日生效（11.7）</span></h3>
+    <h3>全局配置（第 10 章）<span class="tag">修改入队，下赛季首日生效（11.7）</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="PT.a('resetCfgFlow')">恢复默认配置</button></h3>
     ${num('base', 'AI 基础实力均值 base')}
     ${num('distSigma', '分布 σ（金字塔陡峭）', 0.05)}
     ${num('sMin', '实力下限')}${num('sMax', '实力上限')}
@@ -2138,6 +2139,22 @@ function handleAction(name, arg, arg2, arg3) {
       toast('积分已清零，打完当前赛程后排名重置为 1001');
       break;
     }
+    case 'resetCfgFlow': // 恢复默认配置（9.5）：二次确认，后果说明
+      openModal(`<h3>恢复默认配置</h3>
+        <p class="warn-box">将<b>全部配置项</b>（含 preseason 偏好与正赛/资格赛入围门槛）恢复为初始默认值，
+        并写入队列：<b>本赛季不受影响</b>，新赛季首日或「重新开始」时生效。此操作只改配置，不动积分与排名。</p>
+        <div class="btn-row"><button class="btn btn-ghost btn-sm" onclick="PT.a('closeModal')">取消</button>
+        <button class="btn btn-danger btn-sm" onclick="PT.a('resetCfgDo')">确认恢复默认</button></div>`);
+      break;
+    case 'resetCfgDo': { // 与手动修改同通道（11.7 入队机制）：queued = 默认值，current 当季不变
+      const dft = defaultConfig();
+      dft.preseason = true; // 偏好默认值固定为 true（defaultConfig 会读偏好键，此处显式覆盖）
+      state.config.queued = deepCopy(dft);
+      savePrefs(Object.assign(loadPrefs(), { preseason: true }));
+      save(); closeModal();
+      toast('已恢复默认配置：将于下赛季首日或重新开始时生效');
+      break;
+    }
     case 'cfgNum': case 'cfgArr': case 'cfgFp': {
       const raw = (name === 'cfgArr') ? arg3 : arg2;
       const v = parseFloat(raw);
@@ -2148,8 +2165,9 @@ function handleAction(name, arg, arg2, arg3) {
       save(); toast('已保存，将于下赛季生效（11.7）');
       break;
     }
-    case 'cfgCut': { // 入围门槛（JSON 双卡）：{ 级别: { main, qual } }，qual 留空 = 不限
-      let o; try { o = JSON.parse(arg2); } catch (e) { toast('JSON 解析失败：' + e.message); break; }
+    case 'cfgCut': { // 入围门槛（JSON 双卡）：{ 级别: { main, qual, excludeTop? } }，qual 留空 = 不限
+      const raw = arg2 !== undefined ? arg2 : arg; // 兼容旧按级别输入（key,value）与 JSON 文本两种传参
+      let o; try { o = JSON.parse(raw); } catch (e) { toast('JSON 解析失败：' + e.message); break; }
       const ok = o && Object.keys(o).every(l => l in LEVEL_META && o[l] && typeof o[l].main === 'number'
         && (o[l].qual == null || typeof o[l].qual === 'number') && (o[l].qual == null || o[l].qual >= o[l].main)
         && (o[l].excludeTop == null || (typeof o[l].excludeTop === 'number' && o[l].excludeTop < o[l].main)));
