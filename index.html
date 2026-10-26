@@ -1452,18 +1452,20 @@ function advanceToDay(rel) {
  * ######################################################################## */
 // 把玩家插入已建签赛事（顶替位次最低的中选者）；返回玩家今日比赛对象或 null（直通等待/正赛未开始）
 function insertUserIntoDraw(t, form) {
-  const displace = (matches) => { // 找位次最低者换人（ITF 逆序取人 → 位次"最高"即 ranking 最大者）
+  const displace = (matches) => { // 找排名最低者换人（ranking 最大；ITF 沿用同一口径）
     let worst = null;
     matches.forEach((m, mi) => { for (const slot of ['a', 'b']) {
       const id = m[slot];
       if (id == null || id === USER_ID) continue;
       const p = playerById(id);
-      if (!worst || (t.level === 'ITF' ? p.ranking > worst.p.ranking : p.ranking < worst.p.ranking)) worst = { m, slot, p };
+      if (!worst || p.ranking > worst.p.ranking) worst = { m, slot, p };
     }});
     return worst;
   };
   const swap = (worst) => {
     worst.m[worst.slot] = USER_ID;
+    const seedIndex = (t.seeds || []).indexOf(worst.p.id);
+    if (seedIndex >= 0) t.seeds[seedIndex] = USER_ID;
     const ai = t.alive.indexOf(worst.p.id);
     if (ai >= 0) t.alive.splice(ai, 1);
     t.alive.push(USER_ID);
@@ -1642,6 +1644,16 @@ function validateSave(o) {
     && Array.isArray(o.tournaments) && Array.isArray(o.history)
     && o.config && o.config.current && o.config.queued;
 }
+// 旧版顶替入签可能留下错误的一号种子名单；首轮首个签位始终是一号种子位
+function repairSeedSlots() {
+  for (const list of [state.tournaments, state.archive || []]) {
+    for (const t of list) {
+      if (t.finals || !t.seeds || !t.seeds.length || !t.rounds || !t.rounds.length) continue;
+      const first = t.rounds[0].matches[0];
+      if (first && first.a === USER_ID && t.seeds[0] !== USER_ID) t.seeds[0] = USER_ID;
+    }
+  }
+}
 function load() {
   let raw = null;
   try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { /* 忽略 */ }
@@ -1714,6 +1726,7 @@ function load() {
       state.today = buildUserMatch(state.tournaments.find(x => x.id === pending.id), null);
       save();
     }
+    repairSeedSlots();
     return 'ok';
   } catch (e) { return 'corrupt'; }
 }
@@ -1772,6 +1785,7 @@ function importSave(jsonText) {
   try { o = JSON.parse(jsonText); } catch (e) { return '文件不是有效的 JSON'; }
   if (!validateSave(o)) return '存档校验失败（版本或结构不符），未导入';
   state = o;
+  repairSeedSlots();
   save();
   enforceArchiveBudget(); // 导入超大存档时同样裁剪兜底
   return null;
@@ -2236,7 +2250,7 @@ function userStatusText(t) {
   return { alive: '存活', eliminated: '已淘汰', champion: '冠军', notEntered: '未参赛' }[t.userStatus] || t.userStatus;
 }
 function playerName(id) { return id == null ? '待定' : (id === USER_ID ? '你' : esc(playerById(id).name)); }
-// 种子信息展示（9.2）：签表建签时落库（fillDraw/buildFinals 的 seeds 数组，序 = 种子号）；旧存档无 seeds 字段则不标注
+// 种子信息展示（9.2）：建签时落库，玩家顶替及旧档修复时同步（序 = 种子号）；旧存档无 seeds 字段则不标注
 function seedOf(t, id) {
   if (!t || id == null) return 0;
   const arr = t.seeds || (t.finals ? t.top8 : null);
