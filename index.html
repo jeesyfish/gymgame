@@ -270,6 +270,7 @@ function defaultConfig() {
     maxEventsPerWeek: 1,          // 每 AI 每赛季周（按开赛日周计）最多参赛站数，无级别豁免（5.3）；玩家豁免
     entryWindowDays: 7,           // 玩家报名窗口：今日开赛 + 未来 N 天内开赛的赛事可手动选择报名（5.3）
     attendanceRange: [0.4, 1.0],  // AI 出勤率 U[min,max]：非大满贯以该概率报名（3.1/5.3）
+    choiceTemperature: 75,        // 跨级别赛事选择温度：期望积分 / T；越小越集中，越大越分散
     itfPerWeek: 6,                // 每周 ITF 未来赛站数（低排名选手积分来源，5.2）
     qualPoints: { GS:8, MASTERS:4, ATP500:2, ATP250:2, CH125:1, CH100:1, CH75:1, CH50:1, ITF:1 }, // 资格赛每轮胜场积分（6.1）
     // ATP 2025 官方积分表 + ITF 积分表（第 6.1 章；挑战赛四档 125/100/75/50）
@@ -534,9 +535,26 @@ function plannedEntrySet(exceptEventId) {
   }
   return reserved;
 }
-function entryPool(t, activeDay) { // 排除存活与他站预留选手；门槛过滤在正/资格赛池各自进行
-  const busy = busySet(activeDay), reserved = plannedEntrySet(t.id);
-  return state.players.filter(p => !busy.has(p.id) && !reserved.has(p.id));
+// 大满贯必报延伸到此前的重叠赛事：赶不上预计正赛/资格赛首日者，先排除其他级别报名
+function gsProtectionSet(t) {
+  const protectedIds = new Set();
+  if (t.level === 'GS') return protectedIds;
+  const end = t.startDay + LEVEL_META[t.level].rounds + 2;
+  const upcoming = state.season.calendar.filter(e => e.level === 'GS' && e.startDay > t.startDay
+    && e.startDay <= end && !state.tournaments.some(x => x.id === e.id));
+  if (!upcoming.length) return protectedIds;
+  const directCutoff = LEVEL_META.GS.drawSize - (LEVEL_META.GS.qualAdvance || 0);
+  for (const p of state.players) {
+    const elig = entryEligibility('GS', p.ranking);
+    if (!elig) continue;
+    const direct = elig === 'main' && p.ranking <= directCutoff;
+    if (upcoming.some(e => end >= e.startDay + (direct ? 3 : 0))) protectedIds.add(p.id);
+  }
+  return protectedIds;
+}
+function entryPool(t, activeDay) { // 排除存活、他站预留与大满贯冲突选手；门槛过滤在正/资格赛池各自进行
+  const busy = busySet(activeDay), reserved = plannedEntrySet(t.id), gsProtected = gsProtectionSet(t);
+  return state.players.filter(p => !busy.has(p.id) && !reserved.has(p.id) && !gsProtected.has(p.id));
 }
 // 池子只做门槛/排除过滤，周限额与出勤抽签由 lotterySelect 统一处理（其放宽链依赖未过滤池）
 function mainPool(t) { // 正赛池：≤ 正赛门槛且不在禁入区；直接入围者按正赛首日检查赛程冲突
@@ -594,17 +612,75 @@ function selectQualifiers(t, directIds) {
   return lotterySelect(qualPool(t, directIds), t, t.qualAdvance * 8);
 }
 
-// 同周同级别且赛程重叠的赛事联合报名；已建签及更早赛事不重排（旧存档兼容）
+// 期望积分估算：S 差决定单局胜率，换算三局两胜；晚轮次使用预计阵容中的更强子集
+function matchWinEstimate(S, oppS) {
+  const q = clamp(1 / (1 + Math.exp((oppS - S) / 4)), 0.05, 0.95);
+  return clamp(q * q * (3 - 2 * q), 0.05, 0.95);
+}
+function roundStrengths(players, rounds) {
+  if (!players.length) return null;
+  const sorted = players.map(p => p.S).sort((a, b) => b - a);
+  return Array.from({ length: rounds }, (_, ri) => {
+    const n = Math.min(sorted.length, Math.max(1, Math.ceil(sorted.length / Math.pow(2, ri))));
+    return sorted.slice(0, n).reduce((sum, S) => sum + S, 0) / n;
+  });
+}
+function expectedMainPoints(p, t, strengths) {
+  if (!strengths) return 0;
+  const names = ROUND_NAMES[t.drawSize];
+  let survival = 1, ev = 0;
+  for (let ri = 0; ri < strengths.length; ri++) {
+    const win = matchWinEstimate(p.S, strengths[ri]);
+    ev += survival * (1 - win) * pointsFor(t.level, ROW_KEY[names[ri]]);
+    survival *= win;
+  }
+  return ev + survival * pointsFor(t.level, 'winner');
+}
+function eventChoiceProfile(t, week, excluded = new Set()) {
+  const weekly = p => countWeekEvents(p.id, week) < cfg().maxEventsPerWeek;
+  const available = p => !excluded.has(p.id);
+  const order = byDirOrder(t.level), direct = mainPool(t).filter(available).filter(weekly).sort(order);
+  direct.splice(t.directCount);
+  const have = new Set(direct.map(p => p.id));
+  for (const p of spillPoolFor(t).filter(available).slice().sort(order)) {
+    if (direct.length >= t.directCount) break;
+    if (!have.has(p.id)) { direct.push(p); have.add(p.id); }
+  }
+  const qual = qualPool(t, have).filter(available).filter(weekly).sort(order);
+  const qualField = qual.slice(0, t.qualAdvance * 8);
+  const qualifiers = qualField.slice().sort((a, b) => b.S - a.S).slice(0, t.qualAdvance);
+  const mainStrengths = roundStrengths(direct.concat(qualifiers), t.rounds.length);
+  const qualStrengths = roundStrengths(qualField, 3);
+  const mainCache = new Map(), qualCache = new Map();
+  const mainEV = p => {
+    if (!mainCache.has(p.id)) mainCache.set(p.id, expectedMainPoints(p, t, mainStrengths));
+    return mainCache.get(p.id);
+  };
+  const qualEV = p => {
+    if (!qualCache.has(p.id)) {
+      let advance = 1, ev = 0;
+      if (qualStrengths) for (const oppS of qualStrengths) {
+        advance *= matchWinEstimate(p.S, oppS);
+        ev += advance * ((cfg().qualPoints && cfg().qualPoints[t.level]) || 0);
+      }
+      qualCache.set(p.id, ev + advance * mainEV(p));
+    }
+    return qualCache.get(p.id);
+  };
+  return { ev: (p, form) => form === 'direct' ? mainEV(p) : qualEV(p) };
+}
+
+// 同周且赛程重叠的常规赛联合报名；已建签及更早赛事不重排（旧存档兼容）
 function entryGroupFor(event) {
   const end = event.startDay + LEVEL_META[event.level].rounds + 2;
-  return state.season.calendar.filter(e => e.level === event.level && e.startDay >= event.startDay
+  return state.season.calendar.filter(e => e.level !== 'FINALS' && e.startDay >= event.startDay
     && weekOf(e.startDay) === weekOf(event.startDay) && e.startDay <= end
     && !state.tournaments.some(t => t.id === e.id))
     .sort((a, b) => a.startDay - b.startDay || a.slotIndex - b.slotIndex);
 }
-function balancedEntryPlans(events) {
+function balancedEntryPlans(events, assigned = new Set()) {
   const ts = events.map(createTournament), plans = ts.map(() => ({ direct: [], qual: [] }));
-  const assigned = new Set(), week = weekOf(ts[0].startDay);
+  const week = weekOf(ts[0].startDay);
   const weekly = p => countWeekEvents(p.id, week) < cfg().maxEventsPerWeek;
   const allocate = (pools, key, quota) => {
     const ordered = pools.map((pool, i) => pool.slice().sort(byDirOrder(ts[i].level)));
@@ -629,12 +705,69 @@ function balancedEntryPlans(events) {
   allocate(qualPools, 'qual', t => t.qualAdvance * 8);
   return ts.map((t, i) => ({ directIds: plans[i].direct.map(p => p.id), qualIds: plans[i].qual.map(p => p.id) }));
 }
+function choiceUnit(id, salt) {
+  let h = 2166136261;
+  const s = id + '|' + salt;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return ((h >>> 0) + 0.5) / 4294967296;
+}
+// 跨级别：候选按排名选择；EV + 确定性 Gumbel 扰动形成偏好，级别内继续蛇形分站
+function choiceEntryPlans(events, assigned) {
+  const ts = events.map(createTournament), plans = ts.map(() => ({ direct: [], qual: [] }));
+  const week = weekOf(ts[0].startDay);
+  const weekly = p => countWeekEvents(p.id, week) < cfg().maxEventsPerWeek;
+  const profiles = ts.map(t => eventChoiceProfile(t, week, assigned));
+  const allocate = (pools, key, quota, form) => {
+    const sets = pools.map(pool => new Set(pool.map(p => p.id)));
+    const candidates = state.players.filter(p => !assigned.has(p.id) && sets.some(s => s.has(p.id)))
+      .sort((a, b) => a.ranking - b.ranking || a.id - b.id);
+    const counts = {};
+    for (const p of candidates) {
+      const avail = ts.map((_, i) => i).filter(i => plans[i][key].length < quota(ts[i]) && sets[i].has(p.id));
+      if (!avail.length) continue;
+      const levels = [...new Set(avail.map(i => ts[i].level))];
+      const preferences = levels.map(level => {
+        const indices = avail.filter(i => ts[i].level === level);
+        const ev = indices.reduce((sum, i) => sum + profiles[i].ev(p, form), 0) / indices.length;
+        const u = choiceUnit(p.id, `${state.season.number}|${week}|${key}|${form}|${level}`);
+        return { level, score: ev / (cfg().choiceTemperature || 75) - Math.log(-Math.log(u)) };
+      }).sort((a, b) => b.score - a.score || (a.level < b.level ? -1 : a.level > b.level ? 1 : 0));
+      for (const { level } of preferences) {
+        let options = avail.filter(i => ts[i].level === level);
+        if (!options.length) continue;
+        const seq = counts[level] || 0, total = ts.filter(t => t.level === level).length;
+        if (Math.floor(seq / total) % 2) options = options.slice().reverse();
+        const i = options[0];
+        plans[i][key].push(p); assigned.add(p.id); counts[level] = seq + 1;
+        break;
+      }
+    }
+  };
+  allocate(ts.map(t => mainPool(t).filter(weekly)), 'direct', t => t.directCount, 'direct');
+  allocate(ts.map(t => spillPoolFor(t)), 'direct', t => t.directCount, 'direct');
+  const qualPools = ts.map((t, i) => qualPool(t, new Set(plans[i].direct.map(p => p.id))).filter(weekly));
+  allocate(qualPools.map(pool => pool.filter(p => weeklyWilling(p, week))), 'qual', t => t.qualAdvance * 8, 'qual');
+  allocate(qualPools, 'qual', t => t.qualAdvance * 8, 'qual');
+  return ts.map((t, i) => ({ directIds: plans[i].direct.map(p => p.id), qualIds: plans[i].qual.map(p => p.id) }));
+}
+function mixedEntryPlans(events) {
+  const assigned = new Set(), byId = {};
+  const run = (subset, planner) => {
+    if (!subset.length) return;
+    const plans = planner(subset, assigned);
+    subset.forEach((e, i) => { byId[e.id] = plans[i]; });
+  };
+  run(events.filter(e => e.level === 'GS'), balancedEntryPlans);
+  run(events.filter(e => e.level !== 'GS' && e.level !== 'ITF'), choiceEntryPlans);
+  run(events.filter(e => e.level === 'ITF'), balancedEntryPlans);
+  return events.map(e => byId[e.id]);
+}
 function eventEntryPlan(event) {
   const store = state.aiEntryPlans || (state.aiEntryPlans = {});
   if (store[event.id]) return store[event.id];
   const group = entryGroupFor(event);
   if (group.length < 2) return null;
-  const plans = balancedEntryPlans(group);
+  const plans = new Set(group.map(e => e.level)).size === 1 ? balancedEntryPlans(group) : mixedEntryPlans(group);
   group.forEach((e, i) => { store[e.id] = plans[i]; });
   return store[event.id];
 }
@@ -2472,6 +2605,7 @@ function renderSettings() {
     ${num('maxEventsPerWeek', '每 AI 每周最多参赛站数')}
     ${num('entryWindowDays', '玩家报名窗口（天）')}
     ${num('attendanceRange', '出勤率区间', 0.05)}
+    ${num('choiceTemperature', '跨级别赛事选择温度 T', 5)}
     ${num('itfPerWeek', '每周 ITF 未来赛站数')}
     <div class="cfg-row"><label>开局预模拟历史赛季（preseason，5.5）
         <span class="cur">当前：${c.preseason ? '开' : '关'} · 建档期行为，重新开始时生效</span></label>
