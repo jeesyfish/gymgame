@@ -469,8 +469,8 @@ function buildCalendar(template) {
 }
 function cfgSafeItf() { return (state.config && state.config.current.itfPerWeek) || 6; }
 
-// 11.3：不设轮空 —— 正赛与资格赛签表均严格取满。
-// 正赛 = 直接入围（签表 − qualAdvance）+ 资格赛晋级（qualAdvance：大满贯 16，其余赛事统一 8，5.1）
+// 11.3：签表允许留洞 —— 候选不足不强制填坑，单人场轮空晋级；报名不足时资格赛分区均摊、人少直接从第 2 轮打起。
+// 正赛 = 直接入围（签表 − qualAdvance）+ 资格赛晋级（qualAdvance：大满贯 16 / 大师赛 8 / 32 签赛事 4，5.1）
 // 资格赛签表 = qualAdvance × 8，3 轮单败取满（qdraw/2 → qdraw/4 → qdraw/8 = qualAdvance 名晋级）
 function createTournament(event) {
   const meta = LEVEL_META[event.level];
@@ -815,7 +815,18 @@ function fillDraw(t, directEntrants, qualEntrants) {
   for (const p of dpos) if (slots[p] === null && ri < rest.length) slots[p] = rest[ri++].id; // 取满即止，不足留洞（11.3）
   t.rounds[0].matches.forEach((m, i) => { m.a = slots[2 * i] ?? null; m.b = slots[2 * i + 1] ?? null; });
   const qs = qualEntrants.map(p => p.id);
-  t.qual.rounds[0].matches.forEach((m, i) => { m.a = qs[2 * i] ?? null; m.b = qs[2 * i + 1] ?? null; }); // 资格赛首轮（允许留洞）
+  // 资格赛落位（11.3）：报名不足时不堆在一区 —— 选手按晋级名额分区轮转均摊（各区人数差 ≤1）；
+  // 区内 ≤4 人直接落入第 2 轮（第 1 轮整体轮空），≥5 人才从第 1 轮打起。每个名额区都保有角逐：
+  // 8 人报名 → 4 区各 2 人 → 第 2 轮 4 场，胜者即 4 个晋级者（决胜轮轮空）
+  const qsec = Array.from({ length: qn }, () => []);
+  qs.forEach((id, i) => qsec[i % qn].push(id));
+  qsec.forEach((ids, s) => {
+    const qd = ids.length > 4 ? 0 : 1; // 区内人数超出第 2 轮容量（4 签）才从第 1 轮打起
+    ids.forEach((id, j) => {
+      const m = t.qual.rounds[qd].matches[(qd === 0 ? 4 : 2) * s + (j >> 1)];
+      if ((j & 1) === 0) m.a = id; else m.b = id;
+    });
+  });
   t.alive = dpos.map(p => slots[p]).concat(qs).filter(id => id != null); // 正赛入围者与资格赛选手均视为"进行中"（洞不占名额）
   if (slots.includes(USER_ID) || qs.includes(USER_ID)) t.userStatus = 'alive';
 }
@@ -1183,6 +1194,16 @@ function playerEntryFor(e) {
   return pos >= 0 && pos < directCount ? 'direct' : 'qual';
 }
 
+// 11.3 报名不足：玩家资格赛签位直接落在后续轮次，前面的轮次整体轮空 —— 当日无赛，展示轮空卡，时钟照常前进
+function qualByeNotice(t, qd) {
+  let nq = qd + 1;
+  while (nq <= 2 && !t.qual.rounds[nq].matches.some(m => m.a === USER_ID || m.b === USER_ID)) nq++;
+  state.walkoverNotice = { tournamentId: t.id,
+    text: t.name + ' · ' + ROUND_LABEL['Q' + (qd + 1)] + '：资格赛报名不足，你本轮轮空，'
+      + (nq <= 2 ? '直接晋级' + ROUND_LABEL['Q' + (nq + 1)] : '直接晋级正赛') };
+  save();
+}
+
 function buildUserMatchInner(aliveT, target) {
   if (aliveT) {
     let opp = null;
@@ -1196,7 +1217,7 @@ function buildUserMatchInner(aliveT, target) {
     const qd = state.season.day - aliveT.startDay;
     if (aliveT.userEntry === 'qual' && qd >= 0 && qd <= 2) { // 玩家资格赛：一轮一天
       const m = aliveT.qual.rounds[qd].matches.find(m => (m.a === USER_ID || m.b === USER_ID) && !m.played);
-      if (!m) return null;
+      if (!m) { qualByeNotice(aliveT, qd); return null; } // 11.3 报名不足：签位在后续轮次，本轮轮空
       opp = m.a === USER_ID ? m.b : m.a;
       if (opp == null) { // 11.3 留洞：资格赛轮空晋级
         userWalkoverResolve(aliveT, m, 'qual', qd, aliveT.qual.rounds[qd].matches.indexOf(m));
@@ -1219,9 +1240,9 @@ function buildUserMatchInner(aliveT, target) {
   }
   if (target) {
     const t = state.tournaments.find(x => x.id === target.id);
-    if (t.userEntry === 'qual') { // 当日资格赛第 1 轮即开打
+    if (t.userEntry === 'qual') { // 当日资格赛第 1 轮即开打（报名不足时签位可能直接落在第 2 轮，11.3）
       const m = t.qual.rounds[0].matches.find(m => (m.a === USER_ID || m.b === USER_ID) && !m.played);
-      if (!m) return null;
+      if (!m) { qualByeNotice(t, 0); return null; }
       const opp = m.a === USER_ID ? m.b : m.a;
       if (opp == null) { userWalkoverResolve(t, m, 'qual', 0, t.qual.rounds[0].matches.indexOf(m)); return null; }
       return { tournamentId: t.id, qualRound: 0, oppId: opp,
@@ -1335,13 +1356,14 @@ function simulateQualRound(t, qd) {
   });
 }
 
-// 资格赛收官：晋级者（= qualAdvance 名）随机散开落入正赛首轮末段各场（每场一个，对位直接入围者）
+// 资格赛收官：晋级者随机散开落入正赛首轮末段各场（每场一个，对位直接入围者）；
+// 晋级者不足名额时按实际人数落位，空余签位留洞（11.3）
 function assignQualifiers(t) {
   const qn = t.qualAdvance;
-  if (t.qual.winners.length < qn || t.qualAssigned) return;
+  if (!t.qual.winners.length || t.qualAssigned) return;
   const ids = shuffle(t.qual.winners.slice());
   const n = t.drawSize;
-  for (let k = 0; k < qn; k++) {
+  for (let k = 0; k < Math.min(qn, ids.length); k++) {
     const s = n - 2 * (qn - k) + 1; // 末段各首轮比赛的奇数号签位
     const m = t.rounds[0].matches[s >> 1];
     if ((s & 1) === 0) m.a = ids[k]; else m.b = ids[k];
@@ -1405,7 +1427,7 @@ function collectQualReport(report, rel) {
     }
     if (t.finals) continue;
     const scan = (m, roundName) => {
-      if (!m.played || m._rep) return;
+      if (!m.played || m._rep || m.walkover) return; // 轮空场无对手，不入战报（与 9.4 口径一致）
       m._rep = true;
       const w = playerById(m.winner), l = playerById(m.a === m.winner ? m.b : m.a);
       if (report.upsets.length < 8 && w.ranking > l.ranking && (l.ranking <= 100 || w.ranking >= l.ranking + 150))
@@ -1472,11 +1494,22 @@ function insertUserIntoDraw(t, form) {
     t.userStatus = 'alive'; t.userEntry = form;
   };
   if (form === 'qual') {
-    const w = displace(t.qual.rounds[0].matches);
+    // 11.3：报名不足时资格赛落位可能从第 2 轮打起 —— 逐轮扫描全部资格赛签位，顶替位次最低的中选者
+    let w = null;
+    for (const qr of t.qual.rounds) {
+      const x = displace(qr.matches);
+      if (x && (!w || x.p.ranking > w.p.ranking)) w = x;
+    }
     if (w) swap(w);
+    else { // 资格赛签表为空：直接落第 2 轮首位，经轮空路径晋级
+      t.qual.rounds[1].matches[0].a = USER_ID;
+      t.alive.push(USER_ID); t.userStatus = 'alive'; t.userEntry = form;
+    }
     const m = t.qual.rounds[0].matches.find(m => m.a === USER_ID || m.b === USER_ID);
-    return m ? rollTodayScores({ tournamentId: t.id, qualRound: 0, oppId: m.a === USER_ID ? m.b : m.a,
-      sets: [], uw: 0, ow: 0, nextSet: 1 }) : null;
+    if (m) return rollTodayScores({ tournamentId: t.id, qualRound: 0, oppId: m.a === USER_ID ? m.b : m.a,
+      sets: [], uw: 0, ow: 0, nextSet: 1 });
+    qualByeNotice(t, 0); // 签位在第 2 轮：今日第 1 轮轮空
+    return null;
   }
   const w = displace(t.rounds[0].matches);
   if (w) swap(w);
