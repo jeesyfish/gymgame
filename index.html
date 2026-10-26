@@ -1490,7 +1490,8 @@ function advanceToDay(rel) {
  * 玩家手动报名（5.3）：选择卡 → 锁定席位（userEntry，形式报名时计算并锁定）
  * 远期预约可快进或取消；当日赛事签表已建时顶替插入（单席位制）
  * ######################################################################## */
-// 把玩家插入已建签赛事（顶替位次最低的中选者）；返回玩家今日比赛对象或 null（直通等待/正赛未开始）
+// 把玩家插入已建签且已开打的赛事（顶替位次最低的中选者，不重排种子）；返回玩家今日比赛对象或 null（直通等待/正赛未开始）
+// 开赛当日签表已建但尚未比赛时不走本路径 —— 由 rebuildTournamentWithUser 整站重建（种子随排名重排）
 function insertUserIntoDraw(t, form) {
   const displace = (matches) => { // 找排名最低者换人（ranking 最大；ITF 沿用同一口径）
     let worst = null;
@@ -1538,7 +1539,33 @@ function insertUserIntoDraw(t, form) {
     sets: [], uw: 0, ow: 0, nextSet: 1 }) : null;
 }
 
-// 兑现预约：赛事未建签则建签（必入签），已建签则顶替插入；直通 → 快进资格赛 3 天 + 战报
+// 开赛当日签表重建（5.3 预约兑现）：开赛日尚未进行任何比赛，整体重建该站签表 —— 与"建签时玩家必入签"同一口径：
+// 玩家顶替位次最低的中选者，种子按直接入围者排名重新落位（任何入签路径下"前 seeds 名必为种子"对玩家成立）。
+// 顶替插入（insertUserIntoDraw）不重排种子，当日用它会让高排名玩家丢掉种子，仅保留给赛事已开打的残留边界
+function rebuildTournamentWithUser(ev, form) {
+  if (!ev) return null;
+  const idx = state.tournaments.findIndex(x => x.id === ev.id);
+  if (idx < 0) return null;
+  state.tournaments.splice(idx, 1); // 先撤下旧签表：其 alive 名单不得阻塞取人
+  const t = createTournament(ev);
+  const plan = eventEntryPlan(ev); // 预报名名单已缓存 → AI 阵容与原始签表一致；无缓存则按当前池同口径重选
+  if (plan) {
+    t._directEnts = plan.directIds.map(playerById).sort(byDirOrder(ev.level));
+    t._qualEnts = plan.qualIds.map(playerById).sort(byDirOrder(ev.level));
+  } else {
+    t._directEnts = selectDirect(t);
+    const directIds = new Set(t._directEnts.map(p => p.id));
+    t._qualEnts = selectQualifiers(t, directIds);
+  }
+  t.userEntry = form;
+  if (form === 'direct') fillDraw(t, forceUserInto(t, 'direct'), t._qualEnts);
+  else fillDraw(t, t._directEnts, forceUserInto(t, 'qual'));
+  delete t._directEnts; delete t._qualEnts;
+  state.tournaments.splice(idx, 0, t); // 原位放回，保持逐日模拟的迭代顺序
+  return t;
+}
+// 兑现预约：赛事未建签则随今日赛历建签（userEntry 分支保证必入签、种子随排名落位）；
+// 开赛当日签表已建但尚未比赛（当日点选/快进落点）则整站重建；仅赛事已开打的残留预约走顶替插入。直通 → 快进资格赛 3 天 + 战报
 function realizeCommit() {
   const c = state.userEntry;
   if (!c) return null;
@@ -1546,6 +1573,10 @@ function realizeCommit() {
   const ev = state.season.calendar.find(e => e.id === c.eventId);
   let t = tournamentOf(c.eventId);
   if (!t) { generateDayEvents(state.season.day, { event: ev, form: c.form }); t = tournamentOf(c.eventId); }
+  else if (!t.finals && state.season.day === t.startDay) {
+    t = rebuildTournamentWithUser(ev, c.form);
+    if (t) state.today = buildUserMatch(t, null); // 资格赛当日报名 → 资格赛 R1（或轮空卡）；直通时下方改走快进 + 正赛 R1
+  }
   else if (!t.finals) { state.today = insertUserIntoDraw(t, c.form); }
   if (c.form === 'direct') {
     if (!FF_DISABLED) {
@@ -1554,6 +1585,8 @@ function realizeCommit() {
       generateDayEvents(state.season.day, null);
     }
     state.today = buildUserMatch(tournamentOf(c.eventId), null);
+  } else if (state.today == null || state.today.tournamentId !== c.eventId) {
+    state.today = buildUserMatch(tournamentOf(c.eventId), null); // 资格赛兑现：落到资格赛 R1（或报名不足轮空卡）
   }
   return state.today;
 }
@@ -1590,7 +1623,9 @@ function fastForwardTo(targetDay) {
     }
     state.user.pointsLog.push({ day: absDay(), pts: totalPoints(state.user) });
     state.season.day++;
-    generateDayEvents(state.season.day, null);
+    // 目标开赛日不提前建签：留给 realizeCommit 随玩家入签一起建（必入签 + 种子按排名落位）；
+    // 若此处先建签，兑现只能退化为顶替插入，高排名玩家会丢掉种子
+    if (state.season.day < targetDay) generateDayEvents(state.season.day, null);
   }
   delete report._comp;
   state.skipReport = report;
