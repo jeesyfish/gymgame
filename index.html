@@ -485,11 +485,12 @@ function createTournament(event) {
 }
 
 // 当前所有"仍在签表中存活"的选手（进行中途不可再报名其他赛事，5.3.3）
-// 正赛入围者与资格赛选手均在 alive 内：从报名起即占用当周名额、排除其他新签
-function busySet() {
+// 正赛入围者与资格赛选手均在 alive 内；activeDay 用于按实际参赛日排除前一站已收官的选手
+function busySet(activeDay) {
   const s = new Set();
   for (const t of state.tournaments) {
     if (t.status !== 'inProgress' || t.finals) continue;
+    if (activeDay != null && activeDay > t.startDay + LEVEL_META[t.level].rounds + 2) continue;
     for (const id of t.alive) s.add(id);
   }
   return s;
@@ -523,25 +524,25 @@ function entryEligibility(level, ranking) {
   if (c.qual == null || ranking <= c.qual) return 'qual';
   return null;
 }
-function entryPool(t) { // 仅存活排除；门槛过滤在正/资格赛池各自进行
-  const busy = busySet();
+function entryPool(t, activeDay) { // 仅存活排除；门槛过滤在正/资格赛池各自进行
+  const busy = busySet(activeDay);
   return state.players.filter(p => !busy.has(p.id));
 }
 // 池子只做门槛/排除过滤，周限额与出勤抽签由 lotterySelect 统一处理（其放宽链依赖未过滤池）
-function mainPool(t) { // 正赛池：≤ 正赛门槛且不在禁入区
+function mainPool(t) { // 正赛池：≤ 正赛门槛且不在禁入区；直接入围者按正赛首日检查赛程冲突
   const c = cfg().entryCutoff[t.level];
-  return entryPool(t).filter(p => p.ranking <= c.main && (c.excludeTop == null || p.ranking > c.excludeTop));
+  return entryPool(t, t.startDay + 3).filter(p => p.ranking <= c.main && (c.excludeTop == null || p.ranking > c.excludeTop));
 }
 function qualPool(t, directIds) { // 资格赛池：资格赛门槛内、未入直接区者（含正赛落选者）；禁入区排除
   const c = cfg().entryCutoff[t.level];
   return entryPool(t).filter(p => (c.qual == null || p.ranking <= c.qual)
     && (c.excludeTop == null || p.ranking > c.excludeTop) && !directIds.has(p.id));
 }
-// 直接区溢出候选：正赛池不足时按排名递补资格赛合格者；同样受周限额约束与禁入区（不双赛）
+// 直接区溢出候选：正赛池不足时按排名递补资格赛合格者；同样按正赛首日检查赛程冲突
 function spillPoolFor(t) {
   const c = cfg().entryCutoff[t.level];
   const week = weekOf(state.season.day);
-  return entryPool(t).filter(p => countWeekEvents(p.id, week) < cfg().maxEventsPerWeek
+  return entryPool(t, t.startDay + 3).filter(p => countWeekEvents(p.id, week) < cfg().maxEventsPerWeek
     && (c.qual == null || p.ranking <= c.qual) && (c.excludeTop == null || p.ranking > c.excludeTop));
 }
 const byDirOrder = (level) => level === 'ITF' ? (a, b) => b.ranking - a.ranking : (a, b) => a.ranking - b.ranking;
@@ -778,7 +779,8 @@ function onMatchDecided(t, ri, i, m, winner) {
     awardPoints(playerById(loser), t, pointsFor(t.level, 'final'), 'final');
     awardPoints(playerById(winner), t, pointsFor(t.level, 'winner'), 'winner');
     t.status = 'completed'; t.champion = winner;
-    if (loser === USER_ID) t.userStatus = 'eliminated';
+    if (winner === USER_ID) t.userStatus = 'champion';
+    else if (loser === USER_ID) t.userStatus = 'eliminated';
   } else {
     awardPoints(playerById(loser), t, pointsFor(t.level, ROW_KEY[roundName]), ROW_KEY[roundName]);
   }
@@ -943,15 +945,9 @@ function applyPlayerResult(res) {
     m.sets = res.sets.map(s => userIsA ? [s.user, s.ai] : [s.ai, s.user]);
     m.winner = res.won ? USER_ID : res.oppId; m.played = true;
     roundLabel = round.name;
-    if (res.won) {
-      if (round.name === 'F') { pts = awardPoints(state.user, t, pointsFor(t.level, 'winner'), 'winner'); t.status = 'completed'; t.champion = USER_ID; t.userStatus = 'champion'; }
-      else { const nxt = t.rounds[ri + 1].matches[i >> 1]; if ((i & 1) === 0) nxt.a = USER_ID; else nxt.b = USER_ID; }
-    } else {
-      pts = awardPoints(state.user, t, pointsFor(t.level, ROW_KEY[round.name]), ROW_KEY[round.name]);
-      t.userStatus = 'eliminated';
-      const ai = t.alive.indexOf(USER_ID); if (ai >= 0) t.alive.splice(ai, 1);
-      if (ri + 1 < t.rounds.length) { const nxt = t.rounds[ri + 1].matches[i >> 1]; if ((i & 1) === 0) nxt.a = res.oppId; else nxt.b = res.oppId; }
-    }
+    const beforePoints = totalPoints(state.user);
+    onMatchDecided(t, ri, i, m, res.won ? USER_ID : res.oppId);
+    pts = totalPoints(state.user) - beforePoints;
   }
   state.history.push({ season: state.season.number, day: state.season.day, tournamentId: t.id,
     level: t.level, round: roundLabel, oppId: res.oppId, result: res.won ? 'W' : 'L',
@@ -2457,7 +2453,7 @@ function renderSettings() {
  * ######################################################################## */
 function handleAction(name, arg, arg2, arg3) {
   switch (name) {
-    case 'tab': UI.calGoWeek = arg === 'calendar' && state.ui.tab !== arg; state.ui.tab = arg; save(); break; // 打开赛历：一次性定位到当前周
+    case 'tab': if (!state) break; UI.calGoWeek = arg === 'calendar' && state.ui.tab !== arg; state.ui.tab = arg; save(); break; // 打开赛历：一次性定位到当前周
     case 'create': {
       const v = parseInt(document.getElementById('maxreps-input').value, 10);
       if (!Number.isInteger(v) || v < 1 || v > 100) { UI.onboardErr = '请输入 1~100 的整数'; break; }
