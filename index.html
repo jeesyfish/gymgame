@@ -270,7 +270,7 @@ function defaultConfig() {
     maxEventsPerWeek: 1,          // 每 AI 每赛季周（按开赛日周计）最多参赛站数，无级别豁免（5.3）；玩家豁免
     entryWindowDays: 7,           // 玩家报名窗口：今日开赛 + 未来 N 天内开赛的赛事可手动选择报名（5.3）
     attendanceRange: [0.4, 1.0],  // AI 出勤率 U[min,max]：非大满贯以该概率报名（3.1/5.3）
-    choiceTemperature: 75,        // 跨级别赛事选择温度：期望积分 / T；越小越集中，越大越分散
+    choiceTemperature: 25,        // 跨级别赛事选择温度：期望积分 / T；越小越集中，越大越分散（默认 25：EV 差距需盖过 Gumbel 扰动，顶尖选手不再频繁摇进低级别赛事）
     itfPerWeek: 6,                // 每周 ITF 未来赛站数（低排名选手积分来源，5.2）
     qualPoints: { GS:8, MASTERS:4, ATP500:2, ATP250:2, CH125:1, CH100:1, CH75:1, CH50:1, ITF:1 }, // 资格赛每轮胜场积分（6.1）
     // ATP 2025 官方积分表 + ITF 积分表（第 6.1 章；挑战赛四档 125/100/75/50）
@@ -287,6 +287,23 @@ function defaultConfig() {
     },
     calendarTemplate: JSON.parse(JSON.stringify(DEFAULT_CALENDAR)),
   };
+}
+
+// 11.7 配置分级：赛季结构项（选手池 / 赛历模板 / 建档行为，赛季开始即定型）仍只在新赛季首日全量并入；
+// 其余个人/赛事类配置项（积分表、入围门槛、周限额、选择温度、衰减手感等）修改为**下周赛事生效**——
+// 编辑时记 weeklyEffectiveDay = 下周首日（赛季内赛日），每日建签前并入 current；直通快进跳日亦不会错过
+const SEASON_BOUND_KEYS = new Set(['preseason', 'base', 'distSigma', 'sMin', 'sMax', 'poolSize',
+  'traitMin', 'traitMax', 'attendanceRange', 'itfPerWeek', 'calendarTemplate']);
+function applyWeeklyConfig() {
+  const eff = state.config.weeklyEffectiveDay;
+  if (eff == null || state.season.day < eff) return;
+  for (const k of Object.keys(state.config.queued))
+    if (!SEASON_BOUND_KEYS.has(k)) state.config.current[k] = deepCopy(state.config.queued[k]);
+  state.config.weeklyEffectiveDay = null;
+}
+function noteWeeklyConfigEdit() { // 设置页写入 queued 后调用：首个周生效修改记录生效日 = 下周首日
+  if (state.config.weeklyEffectiveDay == null)
+    state.config.weeklyEffectiveDay = weekOf(state.season.day) * 7 + 1;
 }
 
 /* ########################################################################
@@ -730,7 +747,7 @@ function choiceEntryPlans(events, assigned) {
         const indices = avail.filter(i => ts[i].level === level);
         const ev = indices.reduce((sum, i) => sum + profiles[i].ev(p, form), 0) / indices.length;
         const u = choiceUnit(p.id, `${state.season.number}|${week}|${key}|${form}|${level}`);
-        return { level, score: ev / (cfg().choiceTemperature || 75) - Math.log(-Math.log(u)) };
+        return { level, score: ev / (cfg().choiceTemperature || 25) - Math.log(-Math.log(u)) };
       }).sort((a, b) => b.score - a.score || (a.level < b.level ? -1 : a.level > b.level ? 1 : 0));
       for (const { level } of preferences) {
         let options = avail.filter(i => ts[i].level === level);
@@ -1308,6 +1325,7 @@ function forceUserInto(t, form) {
 
 // 某日新开赛赛事建签（userEntry = {event, form}：玩家按位次进入正赛/资格赛；5.3）
 function generateDayEvents(rel, userEntry) {
+  applyWeeklyConfig(); // 11.7：到达下周首日即并入周生效配置（先于当日任何建签/参赛决策）
   const starting = state.season.calendar.filter(e => e.startDay === rel);
   for (const e of starting) { // 级别高者先建签（签表按排名优先填满高级别赛事）
     if (e.level === 'FINALS') { state.tournaments.push(buildFinals(e)); continue; }
@@ -1637,7 +1655,8 @@ function captureSeasonSummary() {
 function newSeason() {
   captureSeasonSummary(); // 赛季收官总结（9.1：最终排名/战绩/冠军列表/积分构成）
   state.season.number++;
-  state.config.current = deepCopy(state.config.queued); // 11.7：入队配置新赛季首日生效
+  state.config.current = deepCopy(state.config.queued); // 11.7：入队配置新赛季首日全量生效（周生效项通常已提前并入）
+  state.config.weeklyEffectiveDay = null; // 跨赛季清掉未触发的周生效标记
   state.season.calendar = buildCalendar(state.config.current.calendarTemplate);
   // 6.3：重算所有未过期积分的到期日 = 新赛季同一站开赛日（按 slotIndex 对应）
   const firstAbs = absDayOf(state.season.number, 1);
@@ -1701,6 +1720,9 @@ function load() {
       if (state.config.current[k] === undefined) state.config.current[k] = deepCopy(dft[k]);
       if (state.config.queued[k] === undefined) state.config.queued[k] = deepCopy(dft[k]);
     }
+    // v1.5：choiceTemperature 默认 75 → 25；仅迁移仍为旧默认值的存档，用户自定义值不动
+    for (const cc of [state.config.current, state.config.queued])
+      if (cc.choiceTemperature === 75) cc.choiceTemperature = 25;
     // 挑战赛四档化迁移（旧档 CHALLENGER → CH125）：积分/资格赛积分沿用旧档自定义值并补齐新三档默认值；
     // 入围门槛按新规则重置四档（旧档单一挑战赛门槛无法拆分到四档）；赛历模板中的 CHALLENGER 同步更名
     const migrateChTiers = (obj, dftObj, keepOld) => {
@@ -2623,6 +2645,9 @@ function drawPointsChart() {
 /* ---------- 9.5 设置 ---------- */
 function renderSettings() {
   const c = cfg(), q = state.config.queued;
+  // 11.7 分级生效徽标：赛季结构项（或赛季最后一周的周生效项）下赛季首日生效，其余下周赛事生效
+  const effBadge = key => (SEASON_BOUND_KEYS.has(key) || weekOf(state.season.day) >= TOTAL_WEEKS)
+    ? '下赛季生效' : '下周生效';
   const num = (key, label, step) => {
     const queued = JSON.stringify(q[key]) !== JSON.stringify(c[key]);
     return `<div class="cfg-row"><label>${label}
@@ -2630,16 +2655,16 @@ function renderSettings() {
       ${Array.isArray(q[key])
         ? q[key].map((v, i) => `<input class="input" type="number" step="${step || 1}" value="${v}" onchange="PT.a('cfgArr','${key}',${i},this.value)">`).join('')
         : `<input class="input" type="number" step="${step || 1}" value="${q[key]}" onchange="PT.a('cfgNum','${key}',this.value)">`}
-      ${queued ? '<span class="queued-badge">下赛季生效</span>' : ''}</div>`;
+      ${queued ? `<span class="queued-badge">${effBadge(key)}</span>` : ''}</div>`;
   };
   const fp = (key, label) => {
     const queued = q.finalsPoints[key] !== c.finalsPoints[key];
     return `<div class="cfg-row"><label>${label}<span class="cur">当前：${c.finalsPoints[key]}</span></label>
       <input class="input" type="number" value="${q.finalsPoints[key]}" onchange="PT.a('cfgFp','${key}',this.value)">
-      ${queued ? '<span class="queued-badge">下赛季生效</span>' : ''}</div>`;
+      ${queued ? `<span class="queued-badge">${effBadge('finalsPoints')}</span>` : ''}</div>`;
   };
   return `<div class="card">
-    <h3>全局配置（第 10 章）<span class="tag">修改入队，下赛季首日生效（11.7）</span>
+    <h3>全局配置（第 10 章）<span class="tag">修改入队：赛季结构项下赛季首日生效，其余下周赛事生效（11.7）</span>
       <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="PT.a('resetCfgFlow')">恢复默认配置</button></h3>
     ${num('base', 'AI 基础实力均值 base')}
     ${num('distSigma', '分布 σ（金字塔陡峭）', 0.05)}
@@ -2663,25 +2688,25 @@ function renderSettings() {
     <p class="muted small mt">poolSize（选手池 1000）、SRange/特质区间（见上方上下限）与积分表 / 赛历模板见下方 JSON；积分表为 ATP 2025 真实数值。</p>
   </div>
   <div class="card">
-    <h3>正赛 / 资格赛入围门槛（JSON 双卡，5.1）</h3>
+    <h3>正赛 / 资格赛入围门槛（JSON 双卡，5.1）<span class="tag">下周赛事生效</span></h3>
     <textarea id="cfg-cutoff" class="input" rows="8">${esc(JSON.stringify(q.entryCutoff))}</textarea>
     <div class="row mt"><button class="btn btn-sm" onclick="PT.a('cfgCut',document.getElementById('cfg-cutoff').value)">校验并保存</button></div>
     <p class="muted small mt">每级别 { main, qual, excludeTop? }；qual 为 null = 资格赛不限；excludeTop = 禁入区上限（排名 ≤ 该值禁止该级别任何比赛，如 ITF 前 200）。缺省字段视为 null（旧存档兼容）</p>
   </div>
   <div class="card">
-    <h3>积分表（JSON，含 ITF）</h3>
+    <h3>积分表（JSON，含 ITF）<span class="tag">下周赛事生效</span></h3>
     <textarea id="cfg-points" class="input" rows="8">${esc(JSON.stringify(q.pointsTable))}</textarea>
     <div class="row mt"><button class="btn btn-sm" onclick="PT.a('cfgJson','points')">校验并保存</button></div>
     <p class="muted small mt">键：winner/final/sf/qf/r16/r32（r64/r128 仅大签表使用）；级别：GS / MASTERS / ATP500 / ATP250 / CH125 / CH100 / CH75 / CH50 / ITF</p>
   </div>
   <div class="card">
-    <h3>资格赛每轮胜场积分（JSON）</h3>
+    <h3>资格赛每轮胜场积分（JSON）<span class="tag">下周赛事生效</span></h3>
     <textarea id="cfg-qual" class="input" rows="3">${esc(JSON.stringify(q.qualPoints))}</textarea>
     <div class="row mt"><button class="btn btn-sm" onclick="PT.a('cfgJson','qual')">校验并保存</button></div>
     <p class="muted small mt">每轮胜场入账分值，按级别：GS 8 / 大师赛 4 / 500·250 2 / 挑战赛·ITF 1（默认）</p>
   </div>
   <div class="card">
-    <h3>赛历模板（JSON，20 周；ITF 由 itfPerWeek 每周自动注入）</h3>
+    <h3>赛历模板（JSON，20 周；ITF 由 itfPerWeek 每周自动注入）<span class="tag">下赛季首日生效</span></h3>
     <textarea id="cfg-cal" class="input" rows="8">${esc(JSON.stringify(q.calendarTemplate))}</textarea>
     <div class="row mt"><button class="btn btn-sm" onclick="PT.a('cfgJson','calendar')">校验并保存</button></div>
     <p class="muted small mt">每周为赛事级别数组：GS / MASTERS / ATP500 / ATP250 / CH125 / CH100 / CH75 / CH50；第 19 周固定为总决赛。</p>
@@ -2857,17 +2882,19 @@ function handleAction(name, arg, arg2, arg3) {
     case 'resetCfgFlow': // 恢复默认配置（9.5）：二次确认，后果说明
       openModal(`<h3>恢复默认配置</h3>
         <p class="warn-box">将<b>全部配置项</b>（含 preseason 偏好与正赛/资格赛入围门槛）恢复为初始默认值，
-        并写入队列：<b>本赛季不受影响</b>，新赛季首日或「重新开始」时生效。此操作只改配置，不动积分与排名。</p>
+        并写入队列：<b>本周赛事不受影响</b>——赛季结构项新赛季首日生效，其余配置下周赛事生效，「重新开始」时全部立即生效。此操作只改配置，不动积分与排名。</p>
         <div class="btn-row"><button class="btn btn-ghost btn-sm" onclick="PT.a('closeModal')">取消</button>
         <button class="btn btn-danger btn-sm" onclick="PT.a('resetCfgDo')">确认恢复默认</button></div>`);
       break;
-    case 'resetCfgDo': { // 与手动修改同通道（11.7 入队机制）：queued = 默认值，current 当季不变
+    case 'resetCfgDo': { // 与手动修改同通道（11.7 入队机制）：queued = 默认值；赛季结构项当季不变，周生效键有差异则下周并入
       const dft = defaultConfig();
       dft.preseason = true; // 偏好默认值固定为 true（defaultConfig 会读偏好键，此处显式覆盖）
       state.config.queued = deepCopy(dft);
+      if (Object.keys(dft).some(k => !SEASON_BOUND_KEYS.has(k)
+        && JSON.stringify(state.config.current[k]) !== JSON.stringify(dft[k]))) noteWeeklyConfigEdit();
       savePrefs(Object.assign(loadPrefs(), { preseason: true }));
       save(); closeModal();
-      toast('已恢复默认配置：将于下赛季首日或重新开始时生效');
+      toast('已恢复默认配置：赛季结构项下赛季首日生效，其余下周赛事生效');
       break;
     }
     case 'cfgNum': case 'cfgArr': case 'cfgFp': {
@@ -2877,7 +2904,9 @@ function handleAction(name, arg, arg2, arg3) {
       if (name === 'cfgNum') state.config.queued[arg] = v;
       else if (name === 'cfgArr') state.config.queued[arg][+arg2] = v;
       else state.config.queued.finalsPoints[arg] = v;
-      save(); toast('已保存，将于下赛季生效（11.7）');
+      const weekly = !SEASON_BOUND_KEYS.has(name === 'cfgFp' ? 'finalsPoints' : arg);
+      if (weekly) noteWeeklyConfigEdit(); // 11.7：周生效键下周首日并入 current
+      save(); toast(weekly ? '已保存，将于下周赛事生效（11.7）' : '已保存，将于下赛季生效（11.7）');
       break;
     }
     case 'cfgCut': { // 入围门槛（JSON 双卡）：{ 级别: { main, qual, excludeTop? } }，qual 留空 = 不限
@@ -2888,7 +2917,8 @@ function handleAction(name, arg, arg2, arg3) {
         && (o[l].excludeTop == null || (typeof o[l].excludeTop === 'number' && o[l].excludeTop < o[l].main)));
       if (!ok) { toast('门槛结构不符：{ 级别: { main, qual: null|number, excludeTop?: null|number(<main) } }'); break; }
       state.config.queued.entryCutoff = o;
-      save(); toast('已保存，将于下赛季生效（11.7）');
+      noteWeeklyConfigEdit(); // 入围门槛为周生效键（11.7）
+      save(); toast('已保存，将于下周赛事生效（11.7）');
       break;
     }
     case 'cfgBool': { // 建档期行为配置（preseason）：立即写入并持久化偏好，重新开始建档时生效
@@ -2918,7 +2948,9 @@ function handleAction(name, arg, arg2, arg3) {
         if (!ok) { toast('赛历模板须为 ' + TOTAL_WEEKS + ' 个周数组，级别取值：GS/MASTERS/ATP500/ATP250/CH125/CH100/CH75/CH50/FINALS'); break; }
         state.config.queued.calendarTemplate = o;
       }
-      save(); toast('已保存，将于下赛季生效（11.7）');
+      const weeklyCfg = arg !== 'calendar'; // 积分表/资格赛积分为周生效键；赛历模板为赛季结构项（11.7）
+      if (weeklyCfg) noteWeeklyConfigEdit();
+      save(); toast(weeklyCfg ? '已保存，将于下周赛事生效（11.7）' : '已保存，将于下赛季生效（11.7）');
       break;
     }
   }
