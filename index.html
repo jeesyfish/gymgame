@@ -526,9 +526,17 @@ function entryEligibility(level, ranking) {
   if (c.qual == null || ranking <= c.qual) return 'qual';
   return null;
 }
-function entryPool(t, activeDay) { // 仅存活排除；门槛过滤在正/资格赛池各自进行
-  const busy = busySet(activeDay);
-  return state.players.filter(p => !busy.has(p.id));
+function plannedEntrySet(exceptEventId) {
+  const reserved = new Set();
+  for (const [eventId, plan] of Object.entries(state.aiEntryPlans || {})) {
+    if (eventId === exceptEventId || state.tournaments.some(t => t.id === eventId)) continue;
+    for (const id of plan.directIds.concat(plan.qualIds)) reserved.add(id);
+  }
+  return reserved;
+}
+function entryPool(t, activeDay) { // 排除存活与他站预留选手；门槛过滤在正/资格赛池各自进行
+  const busy = busySet(activeDay), reserved = plannedEntrySet(t.id);
+  return state.players.filter(p => !busy.has(p.id) && !reserved.has(p.id));
 }
 // 池子只做门槛/排除过滤，周限额与出勤抽签由 lotterySelect 统一处理（其放宽链依赖未过滤池）
 function mainPool(t) { // 正赛池：≤ 正赛门槛且不在禁入区；直接入围者按正赛首日检查赛程冲突
@@ -584,6 +592,51 @@ function selectDirect(t) {
 // 资格赛签表（= qualAdvance × 8）：资格赛池（含正赛落选者）取满；按周锁定意愿抽签，ITF 不限且弱者优先
 function selectQualifiers(t, directIds) {
   return lotterySelect(qualPool(t, directIds), t, t.qualAdvance * 8);
+}
+
+// 同周同级别且赛程重叠的赛事联合报名；已建签及更早赛事不重排（旧存档兼容）
+function entryGroupFor(event) {
+  const end = event.startDay + LEVEL_META[event.level].rounds + 2;
+  return state.season.calendar.filter(e => e.level === event.level && e.startDay >= event.startDay
+    && weekOf(e.startDay) === weekOf(event.startDay) && e.startDay <= end
+    && !state.tournaments.some(t => t.id === e.id))
+    .sort((a, b) => a.startDay - b.startDay || a.slotIndex - b.slotIndex);
+}
+function balancedEntryPlans(events) {
+  const ts = events.map(createTournament), plans = ts.map(() => ({ direct: [], qual: [] }));
+  const assigned = new Set(), week = weekOf(ts[0].startDay);
+  const weekly = p => countWeekEvents(p.id, week) < cfg().maxEventsPerWeek;
+  const allocate = (pools, key, quota) => {
+    const ordered = pools.map((pool, i) => pool.slice().sort(byDirOrder(ts[i].level)));
+    for (let round = 0; ; round++) {
+      let moved = false;
+      const order = ts.map((_, i) => i);
+      if (round % 2) order.reverse();
+      for (const i of order) {
+        if (plans[i][key].length >= quota(ts[i])) continue;
+        const p = ordered[i].find(p => !assigned.has(p.id));
+        if (!p) continue;
+        plans[i][key].push(p); assigned.add(p.id); moved = true;
+      }
+      if (!moved) break;
+    }
+  };
+  allocate(ts.map(t => mainPool(t).filter(weekly)), 'direct', t => t.directCount);
+  allocate(ts.map(t => spillPoolFor(t)), 'direct', t => t.directCount);
+  const qualPools = ts.map((t, i) => qualPool(t, new Set(plans[i].direct.map(p => p.id))).filter(weekly));
+  allocate(qualPools.map((pool, i) => pool.filter(p => ts[i].level === 'GS' || weeklyWilling(p, week))),
+    'qual', t => t.qualAdvance * 8);
+  allocate(qualPools, 'qual', t => t.qualAdvance * 8);
+  return ts.map((t, i) => ({ directIds: plans[i].direct.map(p => p.id), qualIds: plans[i].qual.map(p => p.id) }));
+}
+function eventEntryPlan(event) {
+  const store = state.aiEntryPlans || (state.aiEntryPlans = {});
+  if (store[event.id]) return store[event.id];
+  const group = entryGroupFor(event);
+  if (group.length < 2) return null;
+  const plans = balancedEntryPlans(group);
+  group.forEach((e, i) => { store[e.id] = plans[i]; });
+  return store[event.id];
 }
 
 // 11.2：种子落位（直接入围者中前 seeds 名为种子；资格赛晋级者不设种子，资格赛结束后随机落入资格赛签位）
@@ -988,7 +1041,7 @@ function playerEntryFor(e) {
   if (!elig) return null;
   if (elig === 'qual') return 'qual';
   const week = weekOf(state.season.day);
-  const pool = entryPool({ level: e.level }).filter(p => countWeekEvents(p.id, week) < cfg().maxEventsPerWeek)
+  const pool = entryPool(e).filter(p => countWeekEvents(p.id, week) < cfg().maxEventsPerWeek)
     .filter(p => p.ranking <= c.main && (c.excludeTop == null || p.ranking > c.excludeTop))
     .concat([state.user]); // 玩家池仍按限额过滤（席位竞争口径）
   pool.sort(byDirOrder(e.level));
@@ -1104,10 +1157,15 @@ function generateDayEvents(rel, userEntry) {
   const starting = state.season.calendar.filter(e => e.startDay === rel);
   for (const e of starting) { // 级别高者先建签（签表按排名优先填满高级别赛事）
     if (e.level === 'FINALS') { state.tournaments.push(buildFinals(e)); continue; }
-    const t = createTournament(e);
-    t._directEnts = selectDirect(t, false);
-    const directIds = new Set(t._directEnts.map(p => p.id));
-    t._qualEnts = selectQualifiers(t, directIds);
+    const t = createTournament(e), plan = eventEntryPlan(e);
+    if (plan) {
+      t._directEnts = plan.directIds.map(playerById).sort(byDirOrder(t.level));
+      t._qualEnts = plan.qualIds.map(playerById).sort(byDirOrder(t.level));
+    } else {
+      t._directEnts = selectDirect(t);
+      const directIds = new Set(t._directEnts.map(p => p.id));
+      t._qualEnts = selectQualifiers(t, directIds);
+    }
     // 11.3 留洞：报名不足时不取消赛事 —— 签位空出，人不够的场次（含资格赛第 1 轮）轮空晋级，正赛照常打完
     if (userEntry && userEntry.event === e) {
       t.userEntry = userEntry.form;
@@ -1380,6 +1438,7 @@ function simulatePreseason() {
     gsChampionIds: state.tournaments.filter(t => t.level === 'GS').map(t => t.champion),
   };
   state.tournaments = [];  // 第 0 赛季签表不入库，积分记录保留
+  state.aiEntryPlans = {}; // 历史赛季的预报名名单不得复用于正式赛季
   state.season.number = 1; // 回到第 1 赛季第 1 天
   state.season.day = 1;
   recomputeRankings();
@@ -1424,6 +1483,7 @@ function newSeason() {
   // 9.4 跨赛季对阵可查：往届赛事完整签表归档保留（容量兜底见 enforceArchiveBudget）
   state.archive = (state.archive || []).concat(state.tournaments.map(t => Object.assign({ archivedSeason: state.season.number - 1 }, t))); // number 已自增，旧赛季号需 -1
   state.tournaments = [];
+  state.aiEntryPlans = {}; // 预报名不跨赛季
   state.today = null;
   state.userEntry = null;   // 预约不跨赛季（收官周无远期可报，理论残留在此取消）
   state.skipReport = null;
@@ -1542,6 +1602,7 @@ function createProfile(maxReps) {
     season: { number: 1, day: 1, calendar: [] },
     players: [],
     tournaments: [],
+    aiEntryPlans: {},    // 同周同级别重叠赛事的 AI 预报名名单（按赛事 ID 锁定）
     today: null,
     history: [],
     pendingRankReset: false,
