@@ -1740,6 +1740,12 @@ function load() {
       cc.qualPoints = migrateChTiers(cc.qualPoints, dft.qualPoints, true);
       cc.calendarTemplate = (cc.calendarTemplate || []).map(w => (w || []).map(l => l === 'CHALLENGER' ? 'CH125' : l));
     }
+    // v1.5+ 旧档迁移：无 weeklyEffectiveDay 但存在个人/赛事类排队差异 → 记下周首日生效（存量修改按新规则下周并入 current；
+    // 赛季结构项不触发该标记、仍等新赛季首日全量并入）
+    if (state.config.weeklyEffectiveDay == null
+        && Object.keys(state.config.queued).some(k => !SEASON_BOUND_KEYS.has(k)
+          && JSON.stringify(state.config.queued[k]) !== JSON.stringify(state.config.current[k])))
+      noteWeeklyConfigEdit();
     // 历史/签表/进行中赛事的级别字段同步更名（旧档晋级名额 = 签表 1/8 = 4）
     for (const h of state.history) if (h.level === 'CHALLENGER') h.level = 'CH125';
     for (const list of [state.tournaments, (state.archive || [])]) {
@@ -2645,8 +2651,10 @@ function drawPointsChart() {
 /* ---------- 9.5 设置 ---------- */
 function renderSettings() {
   const c = cfg(), q = state.config.queued;
-  // 11.7 分级生效徽标：赛季结构项（或赛季最后一周的周生效项）下赛季首日生效，其余下周赛事生效
-  const effBadge = key => (SEASON_BOUND_KEYS.has(key) || weekOf(state.season.day) >= TOTAL_WEEKS)
+  // 11.7 分级生效徽标：赛季结构项（或赛季最后一周的周生效项）下赛季首日生效，其余下周赛事生效；
+  // 旧档存量排队修改无 weeklyEffectiveDay（仍等新赛季），如实标注"下赛季生效"，避免"下周"永远不触发
+  const effBadge = key => (SEASON_BOUND_KEYS.has(key) || weekOf(state.season.day) >= TOTAL_WEEKS
+    || state.config.weeklyEffectiveDay == null)
     ? '下赛季生效' : '下周生效';
   const num = (key, label, step) => {
     const queued = JSON.stringify(q[key]) !== JSON.stringify(c[key]);
