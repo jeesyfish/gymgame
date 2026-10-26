@@ -123,6 +123,8 @@ tr.me td{background:#FFF7E0;font-weight:700}
 .m-me{border:2px solid var(--orange);background:#FFFDF3}
 .m-hl{outline:3px solid #F9A825;border-radius:8px;animation:pop .5s ease}
 .m-pending{opacity:.75;font-style:italic}
+.seed{display:inline-block;margin-left:3px;padding:0 4px;border-radius:6px;background:var(--soft);
+  border:1px solid var(--line);color:var(--muted);font-size:10px;font-weight:700;line-height:1.5;vertical-align:1px}
 /* ==================== 图表 / 统计 ==================== */
 canvas.chart{width:100%;height:180px;background:#FFF;border:1px solid var(--line);border-radius:10px}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}
@@ -595,6 +597,7 @@ function fillDraw(t, directEntrants, qualEntrants) {
   const slots = new Array(n).fill(null);
   const seedCount = Math.min(meta.seeds, directEntrants.length);
   const seeds = directEntrants.slice(0, seedCount);
+  t.seeds = seeds.map(p => p.id); // 种子序落库（9.2：赛程日历对阵界面标注种子；资格赛晋级者不设种子）
   const rest = shuffle(directEntrants.slice(seedCount));
   if (seeds.length >= 1) slots[dpos[0]] = seeds[0].id;      // 1 号种子上半区顶端
   if (seeds.length >= 2) slots[dpos[dn - 1]] = seeds[1].id; // 2 号种子下半区底端
@@ -643,7 +646,7 @@ function buildFinals(event) {
   const top8 = finalsQualifiers();
   const t = { id: event.id, slotIndex: event.slotIndex, level: 'FINALS', name: event.name,
     status: 'inProgress', startDay: event.startDay, userStatus: 'notEntered', finals: true,
-    day: 1, top8: top8.slice(), groups: { A: [], B: [] }, rr: [[], [], []], sf: [null, null], f: null, champion: null };
+    day: 1, top8: top8.slice(), seeds: top8.slice(), groups: { A: [], B: [] }, rr: [[], [], []], sf: [null, null], f: null, champion: null };
   const s = top8;
   t.groups.A.push(s[0]); t.groups.B.push(s[1]); // 1、2 号种子分居两组
   if (nextRand() < 0.5) { t.groups.A.push(s[2]); t.groups.B.push(s[3]); }
@@ -2027,16 +2030,27 @@ function renderDrawPanel(tid) {
       ${t.userStatus !== 'notEntered' ? `<span class="tag tag-strong">我：${userStatusText(t)}</span>` : ''}</h3>`;
   if (t.cancelled) return `<div class="card">${head}<p class="muted">本站因报名人数不足取消（11.3 留洞规则）。</p></div>`;
   if (t.finals) return `<div class="card">${head}${renderFinalsDraw(t)}</div>`;
+  const seedLine = t.seeds && t.seeds.length
+    ? `<div class="muted small" style="margin:4px 0 10px">种子：${t.seeds.map((id, i) => `${i + 1} ${esc(playerById(id).name)}`).join('　')}</div>` : '';
   const qualHtml = t.qual.rounds.map((qr, qd) => `<div class="draw-r"><h4>${ROUND_LABEL['Q' + (qd + 1)]}</h4>
     ${qr.matches.map((m, mi) => renderMatchBoxQ(t, qd, mi, m)).join('')}</div>`).join('');
   const roundsHtml = t.rounds.map((r, ri) => `<div class="draw-r"><h4>${mainRoundLabel(t.level, r.name)}</h4>
     ${r.matches.map((m, mi) => renderMatchBox(t, ri, mi, m)).join('')}</div>`).join('');
-  return `<div class="card">${head}<div class="draw">${qualHtml}${roundsHtml}</div></div>`;
+  return `<div class="card">${head}${seedLine}<div class="draw">${qualHtml}${roundsHtml}</div></div>`;
 }
 function userStatusText(t) {
   return { alive: '存活', eliminated: '已淘汰', champion: '冠军', notEntered: '未参赛' }[t.userStatus] || t.userStatus;
 }
 function playerName(id) { return id == null ? '待定' : (id === USER_ID ? '你' : esc(playerById(id).name)); }
+// 种子信息展示（9.2）：签表建签时落库（fillDraw/buildFinals 的 seeds 数组，序 = 种子号）；旧存档无 seeds 字段则不标注
+function seedOf(t, id) {
+  if (!t || id == null) return 0;
+  const arr = t.seeds || (t.finals ? t.top8 : null);
+  if (!arr) return 0;
+  const i = arr.indexOf(id);
+  return i >= 0 ? i + 1 : 0;
+}
+function pNameSeed(t, id) { const s = seedOf(t, id); return s ? playerName(id) + `<span class="seed">(${s})</span>` : playerName(id); }
 // 资格赛场次盒（晋级者以 ✓ 标注）
 function renderMatchBoxQ(t, qd, mi, m) {
   const me = m && (m.a === USER_ID || m.b === USER_ID);
@@ -2057,23 +2071,23 @@ function renderMatchBoxQ(t, qd, mi, m) {
 function renderMatchBox(t, ri, mi, m) {
   const me = m.a === USER_ID || m.b === USER_ID;
   let inner;
-  if (!m.played) inner = `<span class="${m.a == null || m.b == null ? 'm-pending' : ''}">${playerName(m.a)}<br>vs ${playerName(m.b)}</span>`;
-  else if (m.walkover) inner = `<b class="won">${playerName(m.winner)}</b>（轮空晋级）`;
-  else if (m.setsTrimmed) inner = `<b class="${m.winner === m.a ? 'won' : ''}">${playerName(m.a)}</b><br>
-      <b class="${m.winner === m.b ? 'won' : ''}">${playerName(m.b)}</b>
+  if (!m.played) inner = `<span class="${m.a == null || m.b == null ? 'm-pending' : ''}">${pNameSeed(t, m.a)}<br>vs ${pNameSeed(t, m.b)}</span>`;
+  else if (m.walkover) inner = `<b class="won">${pNameSeed(t, m.winner)}</b>（轮空晋级）`;
+  else if (m.setsTrimmed) inner = `<b class="${m.winner === m.a ? 'won' : ''}">${pNameSeed(t, m.a)}</b><br>
+      <b class="${m.winner === m.b ? 'won' : ''}">${pNameSeed(t, m.b)}</b>
       <div class="muted small mt">逐局比分已归档</div>`;
   else {
     const scoreTxt = m.sets.map(s => `${s[0]}:${s[1]}`).join('　');
     const aw = m.winner === m.a;
-    inner = `<b class="${aw ? 'won' : ''}">${playerName(m.a)}</b>　${m.sets.map(s => s[0]).join(' ') }<br>
-      <b class="${!aw ? 'won' : ''}">${playerName(m.b)}</b>　${m.sets.map(s => s[1]).join(' ')}
+    inner = `<b class="${aw ? 'won' : ''}">${pNameSeed(t, m.a)}</b>　${m.sets.map(s => s[0]).join(' ') }<br>
+      <b class="${!aw ? 'won' : ''}">${pNameSeed(t, m.b)}</b>　${m.sets.map(s => s[1]).join(' ')}
       <div class="muted small mt">${scoreTxt}</div>`;
   }
   return `<div class="m ${me ? 'm-me' : ''}" data-ref="m:${ri}:${mi}" onclick="PT.a('showMatch','${t.id}|m:${ri}:${mi}')">${inner}</div>`;
 }
 function renderFinalsDraw(t) {
   const grp = g => groupStandings(t, g).map((r, i) =>
-    `<div>${i + 1}. ${playerName(r.id)} <span class="muted small">${r.w}胜${r.pl - r.w}负</span></div>`).join('');
+    `<div>${i + 1}. ${pNameSeed(t, r.id)} <span class="muted small">${r.w}胜${r.pl - r.w}负</span></div>`).join('');
   const rrHtml = t.rr.map((day, d) => `<div class="draw-r"><h4>${ROUND_LABEL['RR' + (d + 1)]}</h4>
     ${day.map((m, mi) => renderMatchBoxF(t, 'rr', d, mi, m)).join('')}</div>`).join('');
   const sfF = t.sf.map((m, i) => m ? renderMatchBoxF(t, 'sf', 0, i, m) : '<div class="m m-pending">待定</div>').join('');
@@ -2086,14 +2100,14 @@ function renderMatchBoxF(t, kind, d, i, m) {
   const me = m && (m.a === USER_ID || m.b === USER_ID);
   if (!m) return '<div class="m m-pending">待定</div>';
   let inner;
-  if (!m.played) inner = `${playerName(m.a)}<br>vs ${playerName(m.b)}`;
-  else if (m.setsTrimmed) inner = `<b class="${m.winner === m.a ? 'won' : ''}">${playerName(m.a)}</b><br>
-      <b class="${m.winner === m.b ? 'won' : ''}">${playerName(m.b)}</b>
+  if (!m.played) inner = `${pNameSeed(t, m.a)}<br>vs ${pNameSeed(t, m.b)}`;
+  else if (m.setsTrimmed) inner = `<b class="${m.winner === m.a ? 'won' : ''}">${pNameSeed(t, m.a)}</b><br>
+      <b class="${m.winner === m.b ? 'won' : ''}">${pNameSeed(t, m.b)}</b>
       <div class="muted small mt">逐局比分已归档</div>`;
   else {
     const aw = m.winner === m.a;
-    inner = `<b class="${aw ? 'won' : ''}">${playerName(m.a)}</b>　${m.sets.map(s => s[0]).join(' ')}<br>
-      <b class="${!aw ? 'won' : ''}">${playerName(m.b)}</b>　${m.sets.map(s => s[1]).join(' ')}
+    inner = `<b class="${aw ? 'won' : ''}">${pNameSeed(t, m.a)}</b>　${m.sets.map(s => s[0]).join(' ')}<br>
+      <b class="${!aw ? 'won' : ''}">${pNameSeed(t, m.b)}</b>　${m.sets.map(s => s[1]).join(' ')}
       <div class="muted small mt">${m.sets.map(s => `${s[0]}:${s[1]}`).join('　')}</div>`;
   }
   return `<div class="m ${me ? 'm-me' : ''}" data-ref="${kind}:${d}:${i}" onclick="PT.a('showMatch','${t.id}|${kind}:${d}:${i}')">${inner}</div>`;
@@ -2116,17 +2130,17 @@ function showMatchModal(ref) {
   }
   if (!m) return;
   const body = (m.walkover)
-    ? `<p class="mb">${playerName(m.a)} <b>vs</b> ${playerName(m.b)}</p>
-       <p class="muted">对手签位空缺（11.3 留洞），<b class="up">${playerName(m.winner)}</b> 轮空晋级，未设积分。</p>`
+    ? `<p class="mb">${pNameSeed(t, m.a)} <b>vs</b> ${pNameSeed(t, m.b)}</p>
+       <p class="muted">对手签位空缺（11.3 留洞），<b class="up">${pNameSeed(t, m.winner)}</b> 轮空晋级，未设积分。</p>`
     : (m.setsTrimmed)
-    ? `<p class="mb">${playerName(m.a)} <b>vs</b> ${playerName(m.b)}　胜者：<b class="up">${playerName(m.winner)}</b></p>
+    ? `<p class="mb">${pNameSeed(t, m.a)} <b>vs</b> ${pNameSeed(t, m.b)}　胜者：<b class="up">${pNameSeed(t, m.winner)}</b></p>
        <p class="muted">逐局比分已归档（存档体积兜底，仅保留胜负与晋级结构）。</p>`
     : !m.played
     ? '<p class="muted">比赛尚未进行。</p>'
-    : `<p class="mb">${playerName(m.a)} <b>vs</b> ${playerName(m.b)}　胜者：<b class="up">${playerName(m.winner)}</b></p>
-       <table><tr><th>局</th><th>${playerName(m.a)}</th><th>${playerName(m.b)}</th><th>结果</th></tr>
+    : `<p class="mb">${pNameSeed(t, m.a)} <b>vs</b> ${pNameSeed(t, m.b)}　胜者：<b class="up">${pNameSeed(t, m.winner)}</b></p>
+       <table><tr><th>局</th><th>${pNameSeed(t, m.a)}</th><th>${pNameSeed(t, m.b)}</th><th>结果</th></tr>
        ${m.sets.map((s, i) => `<tr><td>第 ${i + 1} 局</td><td>${s[0]}</td><td>${s[1]}</td>
-         <td>${s[0] > s[1] ? playerName(m.a) + ' 胜' : s[1] > s[0] ? playerName(m.b) + ' 胜' : '—'}</td></tr>`).join('')}</table>`;
+         <td>${s[0] > s[1] ? pNameSeed(t, m.a) + ' 胜' : s[1] > s[0] ? pNameSeed(t, m.b) + ' 胜' : '—'}</td></tr>`).join('')}</table>`;
   openModal(`<h3>${esc(t.name)} · ${title}</h3>${body}
     <div class="btn-row"><button class="btn btn-sm" onclick="PT.a('closeModal')">关闭</button></div>`);
 }
