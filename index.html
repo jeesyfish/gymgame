@@ -261,8 +261,8 @@ function defaultConfig() {
       MASTERS:   { main: 50,  qual: 200 },
       ATP500:    { main: 50,  qual: 200 },
       ATP250:    { main: 50,  qual: 300 },
-      CH125:     { main: 100, qual: 300 },
-      CH100:     { main: 150, qual: 400 },
+      CH125:     { main: 100, qual: 400 }, // v1.7：资格带 300→400——301~400 名回流，大师赛周 CH125 资格赛不再断流
+      CH100:     { main: 150, qual: 500 }, // v1.7：资格带 400→500，与 CH125 同步放宽
       CH75:      { main: 200, qual: 600 },
       CH50:      { main: 300, qual: 800 },
       ITF:       { main: 500, qual: null, excludeTop: 200 }, // 前 200 名禁入 ITF
@@ -1808,6 +1808,13 @@ function load() {
       cc.pointsTable = migrateChTiers(cc.pointsTable, dft.pointsTable, true);
       cc.qualPoints = migrateChTiers(cc.qualPoints, dft.qualPoints, true);
       cc.calendarTemplate = (cc.calendarTemplate || []).map(w => (w || []).map(l => l === 'CHALLENGER' ? 'CH125' : l));
+    }
+    // v1.7：默认入围门槛放宽（CH125 资格 300→400、CH100 资格 400→500）；仅迁移仍为旧默认值的存档，用户自定义值不动
+    for (const cc of [state.config.current, state.config.queued]) {
+      const ec = cc.entryCutoff || {};
+      if (ec.CH125 && ec.CH125.qual === 300 && ec.CH100 && ec.CH100.qual === 400) {
+        ec.CH125.qual = 400; ec.CH100.qual = 500;
+      }
     }
     // v1.5+ 旧档迁移：无 weeklyEffectiveDay 但存在个人/赛事类排队差异 → 记下周首日生效（存量修改按新规则下周并入 current；
     // 赛季结构项不触发该标记、仍等新赛季首日全量并入）
